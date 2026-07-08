@@ -1,0 +1,11 @@
+# 防止任何節目收聽資料檔被誤傳上 GitHub
+# （這個工具的資料應該只留在使用者本機，絕不進版本庫）
+*.csv
+*.xlsx
+*.xls
+*.tsv
+*.log
+
+# 系統雜檔
+.DS_Store
+Thumbs.db
