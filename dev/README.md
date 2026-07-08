@@ -17,6 +17,7 @@ cd dev
 npm install                 # 安裝 playwright-core + chart.js + papaparse（僅本資料夾用）
 node make-fixtures.js       # 產生假資料 CSV（fixtures/，已被 .gitignore 擋住不會進版本庫）
 node verify.js              # 跑完整流程 + 檢查 + 截圖（輸出在 out/）
+node verify-ai.js           # 驗證 AI 觀點（Gemini）功能，mock API、不花錢、不打真實網路
 ```
 
 - 若環境的 Chromium 不在預設位置，用環境變數指定：`CHROMIUM=/path/to/chromium node verify.js`
@@ -31,6 +32,8 @@ node verify.js              # 跑完整流程 + 檢查 + 截圖（輸出在 out/
 4. 單集總表欄數正確、「收聽平均比較」欄有紅升/綠降/—三態。
 5. 「開播至今單集平均」與用另一條路徑重算的值一致（交叉驗證）。
 6. 匯出獨立 HTML 後重新開啟，以上檢查全部再跑一次（畫面版對了不代表匯出版對，內嵌副本是獨立程式碼）。
+
+`verify-ai.js`（v14 起）另外驗證 AI 觀點功能：未設定金鑰時的提示、payload 內容（送出的數字與標題是否正確、有沒有夾帶不該送的東西）、匯出時的凍結與空殼移除行為。**這支腳本 mock 掉 Gemini API，只驗證前端邏輯，沒有測過真實 API 的回應格式**——沙盒環境連不到外網，交付前務必請維護者用真的 API key 實際測一次，若格式不同要回來修 `generateAiInsight()` 解析回應的那段。
 
 ## 假資料（fixtures）
 
