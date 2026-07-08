@@ -1802,7 +1802,7 @@ ${styleEl.outerHTML}
 <div class="container">
   <header class="standalone-header">
     <div class="top">
-      <span>鏡好聽節目組專用</span>
+      <span>鏡好聽專用</span>
       <span>報表產出時間 ${exportTimeStr}</span>
     </div>
     <h1>RSS節目收聽<br>分析報告</h1>
