@@ -5,6 +5,7 @@
 <title>節目收聽數據分析工具</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
+<link rel="icon" type="image/svg+xml" href="../favicon.svg">
 
 <!-- 字型:標題用 Noto Serif TC(襯線、編輯部感),內文用 Noto Sans TC -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -640,6 +641,61 @@
   .reading-note ul {
     margin-left: 18px;
     margin-top: 6px;
+  }
+
+  /* AI 觀點(v14) */
+  .ai-insight-block {
+    margin-top: 20px;
+    padding-top: 18px;
+    border-top: 1px dashed var(--line);
+  }
+  .ai-insight-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 8px;
+  }
+  .ai-insight-title {
+    font-family: 'Noto Serif TC', serif;
+    font-weight: 600;
+    font-size: 15px;
+  }
+  .ai-insight-head a {
+    font-size: 12px;
+    color: var(--ink-faint);
+  }
+  .ai-insight-hint {
+    font-size: 12.5px;
+    color: var(--ink-soft);
+    line-height: 1.7;
+    margin-bottom: 12px;
+  }
+  .ai-disclaimer {
+    display: inline-block;
+    font-size: 11.5px;
+    font-weight: 500;
+    color: #7a5d00;
+    background: rgba(244,226,133,0.5);
+    padding: 3px 10px;
+    border-radius: 3px;
+    margin-bottom: 10px;
+  }
+  #ai-output {
+    margin-top: 14px;
+    padding: 16px 20px;
+    background: rgba(255,255,255,0.6);
+    border: 1px solid var(--line);
+  }
+  #ai-text {
+    font-size: 14px;
+    line-height: 1.85;
+    white-space: pre-wrap;
+  }
+  .ai-meta {
+    margin-top: 10px;
+    font-size: 11px;
+    color: var(--ink-faint);
+    font-family: 'JetBrains Mono', monospace;
   }
 
   /* 圖表區 */
@@ -1497,6 +1553,53 @@
         <ul id="insights-list" style="margin-left:18px;margin-top:6px;line-height:1.85;">
           <!-- 動態填入 -->
         </ul>
+
+        <!-- AI 觀點(v14,測試功能)。互動控制項包在 no-print 裡,匯出時整段移除;
+             #ai-output 若已產生內容則隨 DOM clone 一起凍結進匯出檔(比照節目觀察的凍結方式)。
+             沒產生過的話,exportStandaloneHTML 會把整個 #ai-insight-block 移除,不留空殼。 -->
+        <div class="ai-insight-block" id="ai-insight-block">
+          <div class="no-print">
+            <div class="ai-insight-head">
+              <span class="ai-insight-title">AI 觀點<span class="badge dev" style="margin-left:6px;">測試功能</span></span>
+              <a href="#" id="btn-ai-settings">AI 設定</a>
+            </div>
+            <p class="ai-insight-hint">
+              按下方按鈕後,<strong>本次報表的摘要數字與各集標題</strong>會送到 Google Gemini API 進行分析。
+              這是本工具除「上傳摘要到彙整表」外,<strong>唯一會把資料送出瀏覽器的功能</strong>,不按就完全不會發生。
+              AI 產生的內容<strong>僅供參考</strong>,可能有誤,不是正式結論。
+            </p>
+            <div id="ai-settings" style="display:none;" class="sheet-settings">
+              <div class="sheet-field">
+                <label for="ai-key">Gemini API Key(自己的 Google AI Studio 金鑰)</label>
+                <input type="password" id="ai-key" placeholder="AIza…">
+              </div>
+              <div class="sheet-field">
+                <label for="ai-model">模型</label>
+                <select id="ai-model">
+                  <option value="gemini-2.5-flash">gemini-2.5-flash(快、便宜,預設)</option>
+                  <option value="gemini-2.5-pro">gemini-2.5-pro(較慢,分析較細)</option>
+                </select>
+              </div>
+              <div class="btn-row" style="margin-top:12px;">
+                <button class="btn" id="btn-ai-save">儲存設定</button>
+              </div>
+              <p style="font-size:12px;color:var(--ink-faint);margin-top:10px;line-height:1.7;">
+                金鑰只存在你這台電腦的瀏覽器,不會被上傳。去
+                <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>
+                免費申請一組。
+              </p>
+            </div>
+            <div class="btn-row">
+              <button class="btn btn-ghost" id="btn-ai-generate">產生 AI 觀點</button>
+              <span id="ai-status" class="sheet-status"></span>
+            </div>
+          </div>
+          <div id="ai-output" style="display:none;">
+            <div class="ai-disclaimer">⚠️ AI 產生內容,僅供參考、可能有誤,非正式結論</div>
+            <div id="ai-text"></div>
+            <div class="ai-meta" id="ai-meta"></div>
+          </div>
+        </div>
       </div>
     </div>
 
