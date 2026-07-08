@@ -1174,9 +1174,70 @@
     line-height: 1.4;
     max-width: 280px;
   }
+
+  /* ============================================================
+     v14.4:視覺改版,比照入口頁「流動玻璃」方向(方向 B)
+     做法:覆寫既有 token + 對「面板類」容器加圓角/玻璃感,不動任何
+     資料表格本體(table-wrap / #fuzzy-table / #orphan-table / 表格內
+     的 tooltip 都刻意不動,避免動到 CLAUDE.md 記錄過的 tooltip 舊病)。
+     ============================================================ */
+  :root {
+    --ink: #1c1a17;
+    --ink-soft: #57524a;
+    --ink-faint: #8a8478;
+    --paper: #f4f2ef;
+    --paper-warm: #ece6dc;
+    --line: rgba(28,26,23,0.12);
+    --accent: #e2573a;
+    --accent-2: #1d9b54;
+    --accent-3: #8f7fe0;
+    --highlight: #f4e285;
+  }
+  body::before { background-image: none; }
+  .blob-layer {
+    position: fixed; inset: 0; overflow: hidden; z-index: 0; pointer-events: none;
+  }
+  .blob { position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.45; animation: v15-drift 26s ease-in-out infinite; }
+  .blob.b1 { width: 46vw; height: 46vw; top: -16%; left: -10%; background: radial-gradient(circle, #ff8a5c, transparent 70%); }
+  .blob.b2 { width: 42vw; height: 42vw; bottom: -18%; right: -8%; background: radial-gradient(circle, #6a8cff, transparent 70%); animation-delay: -9s; }
+  .blob.b3 { width: 26vw; height: 26vw; top: 40%; right: 22%; background: radial-gradient(circle, #ffd166, transparent 70%); animation-delay: -16s; }
+  @keyframes v15-drift {
+    0%, 100% { transform: translate(0,0) scale(1); }
+    33% { transform: translate(4%,5%) scale(1.06); }
+    66% { transform: translate(-4%,-3%) scale(0.96); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .blob { animation: none; }
+  }
+
+  .masthead { border-bottom: none; padding-bottom: 8px; margin-bottom: 32px; }
+
+  .upload-zone, .file-row, .controls, .period-section, #ai-output,
+  .chart-block, .sheet-settings, .match-summary, .subscriber-bar,
+  .summary-grid, .reading-note, .search-wrap {
+    border-radius: 18px;
+    background: rgba(255,255,255,0.55);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-color: rgba(255,255,255,0.7);
+  }
+  .file-row { border-radius: 10px; }
+  .search-wrap { border-radius: 999px; }
+  .summary-grid { border: 1px solid rgba(255,255,255,0.7); }
+  .subscriber-bar { overflow: hidden; }
+  .subscriber-bar-label { border-radius: 0; }
+
+  .btn { border-radius: 999px; }
+  .btn-ghost { border-radius: 999px; }
 </style>
 </head>
 <body>
+
+<div class="blob-layer">
+  <div class="blob b1"></div>
+  <div class="blob b2"></div>
+  <div class="blob b3"></div>
+</div>
 
 <div class="container">
 
