@@ -637,6 +637,11 @@ function showReport() {
   document.getElementById('orphan-section').style.display = 'none';
   document.getElementById('report').classList.add('active');
   window.scrollTo({top: 0, behavior: 'smooth'});
+
+  // v13:若使用者在彙整表設定勾了「自動上傳」,報表產出時自動送摘要
+  const cfg = getSheetCfg();
+  if (cfg.auto && cfg.url && cfg.token) uploadToSheet(true);
+  else setSheetStatus('', '');
 }
 
 // ============================================================
@@ -921,6 +926,32 @@ function renderReport(showName, data) {
   document.getElementById('sum-lastmonth').textContent = num(lastMonthPlays);
   document.getElementById('sum-lastmonth-label').textContent = `${lastMonthLabel} 上架集數`;
   document.getElementById('sum-period').textContent = num(periodPlays);
+
+  // === 彙整表上傳快照(v13)===
+  // 只收摘要數字,不含逐集明細與備註。使用者按「上傳到彙整表」(或啟用自動上傳)才會送出。
+  const _sumP = p => allMergedReviewed.reduce((s, d) => s + (d[p] || 0), 0);
+  const _nowD = new Date();
+  state.uploadSnapshot = {
+    show: showName || '',
+    producer: document.getElementById('producer-name').value.trim(),
+    generatedAt: `${localDateStr(_nowD).replace(/-/g, '/')} ${String(_nowD.getHours()).padStart(2, '0')}:${String(_nowD.getMinutes()).padStart(2, '0')}`,
+    periodFrom: document.getElementById('date-from').value || '',
+    periodTo: document.getElementById('date-to').value || '',
+    episodesInPeriod: episodes,
+    periodPlays,
+    allTimePlays,
+    allTimeAvg: state.allTimeAvg,
+    allTimeAvgCount: state.allTimeAvgCount,
+    lastMonthLabel,
+    lastMonthPlays,
+    appleTotal: _sumP('apple'),
+    spotifyTotal: _sumP('spotify'),
+    ytTotal: _sumP('yt'),
+    subApple: document.getElementById('sub-apple').value.trim(),
+    subSpotify: document.getElementById('sub-spotify').value.trim(),
+    subYt: document.getElementById('sub-yt').value.trim(),
+    totalEpisodes: data.length,
+  };
 
   // 訂閱數區
   renderSubscribers();
@@ -1356,6 +1387,93 @@ if (searchClear) {
     if (state.merged) renderTable(state.merged);
   });
 }
+
+// ============================================================
+// 11.5 上傳摘要到彙整表(v13,Google Apps Script)
+// ============================================================
+// 只送 state.uploadSnapshot 的摘要數字,不含逐集明細與備註。
+// POST 用預設 Content-Type(text/plain)避免 CORS preflight——Apps Script 不會回應 OPTIONS。
+const SHEET_CFG_KEYS = { url: 'tool1SheetUrl', token: 'tool1SheetToken', auto: 'tool1SheetAuto' };
+
+function getSheetCfg() {
+  try {
+    return {
+      url: localStorage.getItem(SHEET_CFG_KEYS.url) || '',
+      token: localStorage.getItem(SHEET_CFG_KEYS.token) || '',
+      auto: localStorage.getItem(SHEET_CFG_KEYS.auto) === '1',
+    };
+  } catch (e) { return { url: '', token: '', auto: false }; }
+}
+
+function setSheetStatus(msg, kind) {
+  const el = document.getElementById('sheet-upload-status');
+  if (!el) return;
+  el.textContent = msg;
+  el.className = 'sheet-status' + (kind ? ' ' + kind : '');
+}
+
+async function uploadToSheet(silent) {
+  const cfg = getSheetCfg();
+  if (!cfg.url || !cfg.token) {
+    if (!silent) toggleSheetSettings(true);
+    setSheetStatus('請先完成下方彙整表設定(網址與通行碼)', 'warn');
+    return;
+  }
+  if (!state.uploadSnapshot) {
+    setSheetStatus('還沒有可上傳的報表', 'warn');
+    return;
+  }
+  if (!state.uploadSnapshot.show) {
+    setSheetStatus('請先在上方填「節目名稱」再上傳(彙整表以節目名稱歸戶)', 'warn');
+    return;
+  }
+  setSheetStatus('上傳中…', '');
+  try {
+    const resp = await fetch(cfg.url, {
+      method: 'POST',
+      body: JSON.stringify({ token: cfg.token, tool: 'RSS節目收聽數據分析', ...state.uploadSnapshot }),
+    });
+    const out = await resp.json().catch(() => null);
+    if (out && out.ok) {
+      setSheetStatus(`已上傳到彙整表(${state.uploadSnapshot.generatedAt})`, 'ok');
+    } else {
+      setSheetStatus(`上傳失敗:${out && out.error ? out.error : 'HTTP ' + resp.status}`, 'err');
+    }
+  } catch (e) {
+    setSheetStatus('上傳失敗:連不到彙整表網址(網路或設定有誤)', 'err');
+  }
+}
+
+function toggleSheetSettings(show) {
+  const panel = document.getElementById('sheet-settings');
+  if (!panel) return;
+  const want = show === undefined ? panel.style.display === 'none' : show;
+  panel.style.display = want ? 'block' : 'none';
+  if (want) {
+    const cfg = getSheetCfg();
+    document.getElementById('sheet-url').value = cfg.url;
+    document.getElementById('sheet-token').value = cfg.token;
+    document.getElementById('sheet-auto').checked = cfg.auto;
+  }
+}
+
+(function initSheetUpload() {
+  const btnUpload = document.getElementById('btn-upload-sheet');
+  const btnSettings = document.getElementById('btn-sheet-settings');
+  const btnSave = document.getElementById('btn-sheet-save');
+  if (!btnUpload) return;
+  btnUpload.addEventListener('click', () => uploadToSheet(false));
+  btnSettings.addEventListener('click', () => toggleSheetSettings());
+  btnSave.addEventListener('click', () => {
+    try {
+      localStorage.setItem(SHEET_CFG_KEYS.url, document.getElementById('sheet-url').value.trim());
+      localStorage.setItem(SHEET_CFG_KEYS.token, document.getElementById('sheet-token').value.trim());
+      localStorage.setItem(SHEET_CFG_KEYS.auto, document.getElementById('sheet-auto').checked ? '1' : '0');
+    } catch (e) { /* ignore */ }
+    toggleSheetSettings(false);
+    setSheetStatus('設定已儲存', 'ok');
+  });
+})();
 
 // ============================================================
 // 12. 匯出獨立 HTML

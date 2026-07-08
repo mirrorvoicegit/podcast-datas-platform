@@ -817,6 +817,48 @@
   .cmp-avg.up { color: #c8341a; font-weight: 700; }
   .cmp-avg.down { color: #1d9b54; font-weight: 700; }
 
+  /* 彙整表上傳(v13) */
+  .sheet-upload-box {
+    margin-top: 28px;
+    padding-top: 24px;
+    border-top: 1px dashed var(--line);
+  }
+  .sheet-status { font-size: 13px; align-self: center; color: var(--ink-faint); }
+  .sheet-status.ok { color: #1d9b54; }
+  .sheet-status.err { color: #c8341a; }
+  .sheet-status.warn { color: #7a5d00; }
+  .sheet-settings {
+    margin-top: 16px;
+    padding: 20px;
+    background: rgba(255,255,255,0.6);
+    border: 1px solid var(--line);
+    max-width: 640px;
+  }
+  .sheet-field { margin-bottom: 14px; }
+  .sheet-field label {
+    display: block;
+    font-size: 12px;
+    color: var(--ink-soft);
+    margin-bottom: 6px;
+  }
+  .sheet-field input {
+    width: 100%;
+    padding: 9px 12px;
+    border: 1px solid var(--line);
+    background: #fff;
+    font-size: 13px;
+    font-family: inherit;
+    box-sizing: border-box;
+  }
+  .sheet-auto-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--ink-soft);
+    cursor: pointer;
+  }
+
   /* 匹配狀況區 */
   .match-summary {
     display: flex;
@@ -1226,7 +1268,7 @@
     <h2>上傳三個平台的 CSV</h2>
     <p class="section-intro">
       把平台後台匯出的 CSV 拖進下方框框（或點一下選檔），可以一次選多個。系統會自動辨識每個檔是哪個平台、自動對應欄位、自動比對單集標題,你不用操心欄位對應。傳幾個就分析幾個。
-      所有資料只在你的瀏覽器內處理,不會上傳到任何伺服器。
+      所有資料只在你的瀏覽器內處理,不會上傳到任何伺服器。唯一例外:報表頁最下方的「上傳摘要到彙整表」是你主動啟用才會把摘要數字送到節目組自己的試算表。
     </p>
 
     <label class="upload-zone" id="dropzone-all">
@@ -1565,12 +1607,47 @@
         檔案為單一 HTML,雙擊即可在瀏覽器打開,圖表、表格完整呈現,無需安裝軟體。
         檔名會自動帶入節目名與日期,主管可逐次保存不同時間點的快照,自行對照長尾趨勢。
       </p>
+
+      <!-- 彙整表上傳(v13) -->
+      <div class="sheet-upload-box">
+        <div class="btn-row">
+          <button class="btn btn-ghost" id="btn-upload-sheet">上傳摘要到彙整表</button>
+          <button class="btn btn-ghost" id="btn-sheet-settings">彙整表設定</button>
+          <span id="sheet-upload-status" class="sheet-status"></span>
+        </div>
+        <p style="font-size:12px;color:var(--ink-faint);margin-top:10px;line-height:1.7;">
+          按下上傳後,<strong>本次報表的摘要數字</strong>(節目名稱、分析區間、各平台累積收聽、單集平均、訂閱數)
+          會傳送到節目組自己的 Google 試算表,供主管在總覽頁一次看所有節目。
+          <strong>不會上傳</strong>CSV 原始檔、逐集明細與備註。這是本工具唯一會把資料送出瀏覽器的功能,不設定就完全不會發生。
+        </p>
+        <div id="sheet-settings" style="display:none;" class="sheet-settings">
+          <div class="sheet-field">
+            <label for="sheet-url">彙整表網址(Apps Script 網路應用程式 URL)</label>
+            <input type="text" id="sheet-url" placeholder="https://script.google.com/macros/s/…/exec">
+          </div>
+          <div class="sheet-field">
+            <label for="sheet-token">通行碼(要跟 Apps Script 裡設定的一致)</label>
+            <input type="text" id="sheet-token" placeholder="通行碼">
+          </div>
+          <label class="sheet-auto-row">
+            <input type="checkbox" id="sheet-auto">
+            <span>之後每次產出報表時自動上傳摘要(不再逐次按按鈕)</span>
+          </label>
+          <div class="btn-row" style="margin-top:12px;">
+            <button class="btn" id="btn-sheet-save">儲存設定</button>
+          </div>
+          <p style="font-size:12px;color:var(--ink-faint);margin-top:10px;line-height:1.7;">
+            還沒有彙整表?請節目組負責人照 repo 裡 <code>apps-script/彙整表.gs</code> 檔案開頭的步驟建立(約 5 分鐘),
+            建好後把網址與通行碼發給各製作人填入這裡。設定只存在你這台電腦的瀏覽器。
+          </p>
+        </div>
+      </div>
     </div>
 
   </section>
 
   <footer>
-    鏡好聽節目組 · 內部分析工具 · 資料於瀏覽器本機處理 · 不上傳至任何伺服器
+    鏡好聽節目組 · 內部分析工具 · 資料於瀏覽器本機處理 · 僅「上傳摘要到彙整表」功能經你啟用後會送出摘要數字
   </footer>
 
 </div>
