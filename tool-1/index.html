@@ -97,14 +97,6 @@
     margin-bottom: 12px;
   }
 
-  .masthead .subtitle {
-    font-family: 'Noto Serif TC', serif;
-    font-style: italic;
-    font-size: 18px;
-    color: var(--ink-soft);
-    font-weight: 400;
-  }
-
   /* === 區塊標題 === */
   .section {
     margin-bottom: 56px;
@@ -155,6 +147,19 @@
   .upload-zone:hover, .upload-zone.dragover {
     border-color: var(--accent);
     background: rgba(255,255,255,0.7);
+  }
+  /* 上傳成功狀態(v14.1):框線改實線綠色,一眼看出跟「還沒傳」不一樣 */
+  .upload-zone.uploaded {
+    border-style: solid;
+    border-color: var(--accent-2);
+    background: rgba(29,155,84,0.06);
+  }
+  .upload-status {
+    font-family: 'Noto Sans TC', sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--accent-2);
+    margin-bottom: 10px;
   }
   .upload-icon {
     font-size: 40px;
@@ -335,12 +340,6 @@
     color: var(--ink-soft);
   }
   .period-hint strong { color: var(--accent); font-weight: 500; }
-  .period-presets {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-bottom: 14px;
-  }
   .period-row {
     display: flex;
     align-items: center;
@@ -359,25 +358,6 @@
     color: var(--ink);
   }
   #period-select:focus { outline: none; border-color: var(--ink); }
-  .period-btn {
-    padding: 7px 14px;
-    border: 1px solid var(--line);
-    background: white;
-    font-family: 'Noto Sans TC', sans-serif;
-    font-size: 13px;
-    cursor: pointer;
-    transition: all 0.15s;
-    color: var(--ink-soft);
-  }
-  .period-btn:hover {
-    border-color: var(--ink);
-    color: var(--ink);
-  }
-  .period-btn.active {
-    background: var(--ink);
-    color: var(--paper);
-    border-color: var(--ink);
-  }
   .period-custom {
     display: flex;
     align-items: center;
@@ -407,54 +387,6 @@
     margin-left: 4px;
   }
 
-  /* 訂閱數抓法說明 */
-  .sub-howto {
-    margin-top: 10px;
-  }
-  .sub-howto details {
-    background: rgba(255,255,255,0.4);
-    border: 1px solid var(--line);
-    padding: 0;
-  }
-  .sub-howto summary {
-    cursor: pointer;
-    padding: 10px 16px;
-    font-size: 13px;
-    color: var(--ink-soft);
-    user-select: none;
-    list-style-position: inside;
-  }
-  .sub-howto summary:hover { color: var(--ink); }
-  .sub-howto details[open] summary {
-    border-bottom: 1px solid var(--line);
-    color: var(--ink);
-    font-weight: 500;
-  }
-  .sub-howto ul {
-    margin: 12px 0 8px;
-    padding: 0 20px 0 36px;
-    list-style: none;
-  }
-  .sub-howto li {
-    font-size: 13px;
-    color: var(--ink-soft);
-    margin-bottom: 8px;
-    line-height: 1.6;
-    position: relative;
-  }
-  .sub-howto li::before {
-    content: '→';
-    position: absolute;
-    left: -18px;
-    color: var(--ink-faint);
-  }
-  .sub-howto-note {
-    font-size: 12px;
-    color: var(--ink-faint);
-    padding: 0 20px 14px 36px;
-    margin: 0;
-    font-style: italic;
-  }
 
   /* === 指標說明 tooltip === */
   .info-tip {
@@ -974,59 +906,11 @@
     .share-layout { grid-template-columns: 1fr; }
   }
 
-  .empty-state {
-    text-align: center;
-    padding: 80px 20px;
-    color: var(--ink-faint);
-  }
-  .empty-state svg {
-    width: 64px;
-    height: 64px;
-    margin-bottom: 16px;
-    opacity: 0.3;
-  }
-
   /* 可疑配對表 */
-  #fuzzy-table input[type="checkbox"] {
-    width: 18px; height: 18px;
-    cursor: pointer;
-    accent-color: var(--accent-2);
-  }
-  #fuzzy-table tr.unchecked { opacity: 0.4; }
   #fuzzy-table td {
     vertical-align: middle;
     font-size: 13px;
     line-height: 1.45;
-  }
-  .fuzzy-title-a, .fuzzy-title-b {
-    font-size: 13px;
-  }
-  .fuzzy-title-a strong, .fuzzy-title-b strong {
-    color: var(--ink);
-    font-weight: 500;
-  }
-  .fuzzy-source {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 10px;
-    letter-spacing: 0.08em;
-    color: var(--ink-faint);
-    margin-bottom: 3px;
-  }
-  .sim-bar {
-    display: inline-block;
-    width: 60px;
-    height: 4px;
-    background: var(--line);
-    border-radius: 2px;
-    margin-right: 8px;
-    vertical-align: middle;
-    position: relative;
-  }
-  .sim-bar-fill {
-    display: block;
-    height: 100%;
-    background: var(--accent-2);
-    border-radius: 2px;
   }
   #orphan-table input[type="checkbox"] {
     width: 18px;
@@ -1290,15 +1174,6 @@
     line-height: 1.4;
     max-width: 280px;
   }
-  #fuzzy-table .title-platform-tag {
-    display: inline-block;
-    padding: 1px 6px;
-    font-size: 9px;
-    font-family: 'JetBrains Mono', monospace;
-    letter-spacing: 0.08em;
-    margin-right: 4px;
-    vertical-align: middle;
-  }
 </style>
 </head>
 <body>
@@ -1318,8 +1193,7 @@
   <section class="section no-print" id="upload-section">
     <h2>上傳三個平台的 CSV</h2>
     <p class="section-intro">
-      把平台後台匯出的 CSV 拖進下方框框（或點一下選檔），可以一次選多個。系統會自動辨識每個檔是哪個平台、自動對應欄位、自動比對單集標題,你不用操心欄位對應。傳幾個就分析幾個。
-      所有資料只在你的瀏覽器內處理,不會上傳到任何伺服器。唯一例外:報表頁最下方的「上傳摘要到彙整表」是你主動啟用才會把摘要數字送到節目組自己的試算表。
+      可一次拖曳或選取多個 CSV，系統會自動辨識平台、比對單集標題。所有資料只在瀏覽器本機處理，不會外流——唯一例外是報表頁的「上傳摘要到彙整表」，需你主動啟用。
     </p>
 
     <label class="upload-zone" id="dropzone-all">
