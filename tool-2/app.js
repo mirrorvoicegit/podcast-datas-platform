@@ -994,10 +994,10 @@ ${styleEl.outerHTML}
 <div class="container">
   <header class="standalone-header">
     <div class="top">
-      <span>鏡好聽節目組專用</span>
+      <span>鏡好聽專用</span>
       <span>報表產出時間 ${exportTimeStr}</span>
     </div>
-    <h1>鏡好聽平台<br>收聽數據分析報告</h1>
+    <h1>鏡好聽平台<br>收聽分析報告</h1>
   </header>
   ${reportSection.outerHTML}
   <footer class="standalone-footer">本報表為靜態快照,資料為產出當下的數值。</footer>
