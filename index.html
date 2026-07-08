@@ -84,13 +84,6 @@
     margin-bottom: 16px;
   }
 
-  .masthead .subtitle {
-    font-family: 'Noto Serif TC', serif;
-    font-style: italic;
-    font-size: 21px;
-    color: var(--ink-soft);
-  }
-
   /* 工具卡片 */
   .tools {
     display: grid;
@@ -131,16 +124,6 @@
   }
   .tool-card:hover::before {
     height: 8px;
-  }
-
-  .tool-label {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 10px;
-    letter-spacing: 0.22em;
-    text-transform: uppercase;
-    color: var(--ink-faint);
-    margin-bottom: 10px;
-    margin-top: 4px;
   }
 
   .tool-name {
@@ -218,9 +201,8 @@
   .badge.beta { background: rgba(244,226,133,0.5); color: #7a5d00; }
   .badge.dev { background: rgba(136,136,136,0.15); color: var(--ink-faint); }
 
-  /* 開發中卡片:非連結,橫跨整行、弱化互動樣式 */
+  /* 開發中卡片:非連結,跟其他卡片同尺寸、弱化互動樣式 */
   .tool-card.tool-3 {
-    grid-column: 1 / -1;
     cursor: default;
     opacity: 0.75;
   }
@@ -318,7 +300,7 @@
         </div>
         <div class="tool-meta-row">
           <span class="label">版本</span>
-          <span>v13.2</span>
+          <span>v14</span>
         </div>
       </div>
 

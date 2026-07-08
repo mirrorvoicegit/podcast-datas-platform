@@ -266,7 +266,14 @@ const PLATFORM_LABEL = { apple: 'APPLE', spotify: 'SPOTIFY', yt: 'YOUTUBE' };
 
 function renderFilesList(errs = []) {
   const listEl = document.getElementById('dropzone-msg');
+  const uploadedCount = ['apple', 'spotify', 'yt'].filter(p => state.fileInfo[p]).length;
+
+  // v14.1:明顯的「已上傳」狀態,不然使用者不確定拖曳有沒有成功
+  dropzoneAll.classList.toggle('uploaded', uploadedCount > 0);
   let html = '';
+  if (uploadedCount > 0) {
+    html += `<div class="upload-status">✓ 已上傳 ${uploadedCount} 個檔案</div>`;
+  }
   ['apple', 'spotify', 'yt'].forEach(p => {
     const info = state.fileInfo[p];
     if (info) {
