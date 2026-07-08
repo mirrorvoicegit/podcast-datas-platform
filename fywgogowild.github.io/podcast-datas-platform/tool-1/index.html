@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <title>節目收聽數據分析工具</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex, nofollow">
 
 <!-- 字型:標題用 Noto Serif TC(襯線、編輯部感),內文用 Noto Sans TC -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -753,13 +752,11 @@
     position: relative;
     font-weight: 500;
     color: var(--ink);
-    text-align: center;  /* 日期與下方「最新一週」標籤一起置中對齊 */
   }
   tbody tr.recent-week td:first-child::after {
-    content: '最新一週';
-    display: block;            /* 換行到日期下方 */
-    width: fit-content;
-    margin: 4px auto 0;        /* 置中於日期正下方 */
+    content: '本週';
+    display: inline-block;
+    margin-left: 7px;
     padding: 1px 7px;
     font-size: 10px;
     font-family: 'Noto Sans TC', sans-serif;
@@ -768,6 +765,7 @@
     background: var(--accent);
     color: #fff;
     border-radius: 3px;
+    vertical-align: middle;
     line-height: 1.5;
   }
 
