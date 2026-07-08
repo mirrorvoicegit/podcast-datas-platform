@@ -812,7 +812,8 @@
 
   .tag.missing { background: #fff; border: 1px dashed var(--line); color: var(--ink-faint); }
 
-  /* 收聽平均比較欄(v12):紅漲綠跌,台股慣例 */
+  /* 收聽平均比較欄(v12):紅漲綠跌,台股慣例。v13.1:整欄統一靠左,箭頭才會上下對齊 */
+  .cmp-cell { text-align: left !important; white-space: nowrap; }
   .cmp-avg { font-size: 12px; white-space: nowrap; color: var(--ink-faint); }
   .cmp-avg.up { color: #c8341a; font-weight: 700; }
   .cmp-avg.down { color: #1d9b54; font-weight: 700; }
@@ -849,14 +850,6 @@
     font-size: 13px;
     font-family: inherit;
     box-sizing: border-box;
-  }
-  .sheet-auto-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-    color: var(--ink-soft);
-    cursor: pointer;
   }
 
   /* 匹配狀況區 */
@@ -1586,7 +1579,7 @@
               <th class="num sortable" data-sort="spotify"><span class="th-label">Spotify<br>至今收聽</span><i class="info-tip" data-tip="Spotify 後台的 plays 欄位，這集的累積播放次數。">i</i></th>
               <th class="num sortable" data-sort="yt"><span class="th-label">YouTube<br>至今收聽</span><i class="info-tip" data-tip="YouTube 的觀看次數。已排除時長低於門檻的 Shorts 短影音。">i</i></th>
               <th class="num sortable" data-sort="total"><span class="th-label">全平台<br>總計</span><i class="info-tip" data-tip="三平台相加，參考用。三平台計算邏輯不同、同一人可能重複計算，不是精準總人次。">i</i></th>
-              <th class="num"><span class="th-label">收聽平均<br>比較</span><i class="info-tip" data-tip="該集全平台總計對比「開播至今單集平均」的高低（紅↑高於平均、綠↓低於平均）。平均只計入各上傳平台皆有數據的集數；缺任一平台數據的集數不參與比較，顯示 —。注意：越新的集數累積時間越短，低於平均不代表表現差。">i</i></th>
+              <th class="cmp-cell"><span class="th-label">收聽平均<br>比較</span><i class="info-tip" data-tip="該集全平台總計對比「開播至今單集平均」的高低（紅↑高於平均、綠↓低於平均）。平均只計入各上傳平台皆有數據的集數；缺任一平台數據的集數不參與比較，顯示 —。注意：越新的集數累積時間越短，低於平均不代表表現差。">i</i></th>
               <th>備註</th>
             </tr>
           </thead>
@@ -1608,37 +1601,30 @@
         檔名會自動帶入節目名與日期,主管可逐次保存不同時間點的快照,自行對照長尾趨勢。
       </p>
 
-      <!-- 彙整表上傳(v13) -->
+      <!-- 彙整表同步(v13,v13.1 起由「下載報表」自動觸發) -->
       <div class="sheet-upload-box">
-        <div class="btn-row">
-          <button class="btn btn-ghost" id="btn-upload-sheet">上傳摘要到彙整表</button>
-          <button class="btn btn-ghost" id="btn-sheet-settings">彙整表設定</button>
-          <span id="sheet-upload-status" class="sheet-status"></span>
-        </div>
-        <p style="font-size:12px;color:var(--ink-faint);margin-top:10px;line-height:1.7;">
-          按下上傳後,<strong>本次報表的摘要數字</strong>(節目名稱、分析區間、各平台累積收聽、單集平均、訂閱數)
-          會傳送到節目組自己的 Google 試算表,供主管在總覽頁一次看所有節目。
-          <strong>不會上傳</strong>CSV 原始檔、逐集明細與備註。這是本工具唯一會把資料送出瀏覽器的功能,不設定就完全不會發生。
+        <p style="font-size:12px;color:var(--ink-faint);line-height:1.7;margin:0;">
+          📤 按「下載報表」時,<strong>本次報表的摘要數字</strong>(節目名稱、分析區間、各平台累積收聽、單集平均、訂閱數)
+          會同步到節目組的 Google 彙整表,供主管在總覽頁一次看所有節目;同一天重複下載會直接覆蓋當天紀錄。
+          <strong>不會上傳</strong>CSV 原始檔、逐集明細與備註。
+          <a href="#" id="btn-sheet-settings">彙整表設定</a>
         </p>
+        <div style="margin-top:8px;"><span id="sheet-upload-status" class="sheet-status"></span></div>
         <div id="sheet-settings" style="display:none;" class="sheet-settings">
           <div class="sheet-field">
             <label for="sheet-url">彙整表網址(Apps Script 網路應用程式 URL)</label>
             <input type="text" id="sheet-url" placeholder="https://script.google.com/macros/s/…/exec">
           </div>
           <div class="sheet-field">
-            <label for="sheet-token">通行碼(要跟 Apps Script 裡設定的一致)</label>
+            <label for="sheet-token">通行碼(已預設為節目組共用碼,通常不用改)</label>
             <input type="text" id="sheet-token" placeholder="通行碼">
           </div>
-          <label class="sheet-auto-row">
-            <input type="checkbox" id="sheet-auto">
-            <span>之後每次產出報表時自動上傳摘要(不再逐次按按鈕)</span>
-          </label>
           <div class="btn-row" style="margin-top:12px;">
             <button class="btn" id="btn-sheet-save">儲存設定</button>
           </div>
           <p style="font-size:12px;color:var(--ink-faint);margin-top:10px;line-height:1.7;">
             還沒有彙整表?請節目組負責人照 repo 裡 <code>apps-script/彙整表.gs</code> 檔案開頭的步驟建立(約 5 分鐘),
-            建好後把網址與通行碼發給各製作人填入這裡。設定只存在你這台電腦的瀏覽器。
+            建好後把網址發給各製作人填入這裡。設定只存在你這台電腦的瀏覽器。
           </p>
         </div>
       </div>

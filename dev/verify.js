@@ -70,7 +70,7 @@ async function inspect(page) {
 
 function assertReport(r, label) {
   check(`${label}:趨勢圖圖例有三個平台`, r.trendLegend && r.trendLegend.length === 3);
-  const badFill = (r.trendLegend || []).filter(i => !/^#[0-9a-f]{8}$/i.test(i.fill) && !/^rgba/.test(i.fill));
+  const badFill = (r.trendLegend || []).filter(i => !/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(i.fill) && !/^rgba?\(/.test(i.fill));
   check(`${label}:圖例填色都是合法色碼`, badFill.length === 0, badFill.map(i => i.text + '=' + i.fill).join(', '));
   check(`${label}:開播至今 TOP10 圖有 10 筆`, r.alltimeLabels === 10, 'labels=' + r.alltimeLabels);
   check(`${label}:橫排數字有開播至今單集平均`, r.matchSummaryText.includes('開播至今單集平均'));
