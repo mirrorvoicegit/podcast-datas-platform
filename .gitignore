@@ -9,3 +9,9 @@
 # 系統雜檔
 .DS_Store
 Thumbs.db
+
+# dev/ 驗證配備的產物(套件、假資料、截圖輸出)
+dev/node_modules/
+dev/fixtures/
+dev/out/
+dev/package-lock.json

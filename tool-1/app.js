@@ -537,6 +537,13 @@ function enterOrphanReview() {
   // 過濾掉已被合併的孤兒
   staged.merged = staged.merged.filter(d => !mergedKeys.has(d._key));
 
+  // v12:記下使用者確認過的配對(_key 是由標題決定的,跨資料集穩定),
+  // 讓「開播至今單集平均」等全域統計能把這些集數視為完整,不會誤判成缺平台。
+  state.approvedFuzzy = approvedPairs.map(p => {
+    const platform = ['apple', 'spotify', 'yt'].find(pl => p.target[pl] !== null);
+    return { targetKey: p.target._key, matchKey: p.match._key, platform };
+  }).filter(r => r.platform);
+
   // 算 total
   staged.merged.forEach(d => {
     d.total = (d.apple || 0) + (d.spotify || 0) + (d.yt || 0);
@@ -862,12 +869,48 @@ function renderReport(showName, data) {
   // 開播至今:全部集數的三平台總和
   const allTimePlays = allMerged.reduce((s, d) => s + rowTotal(d), 0);
 
+  // === 開播至今單集平均(v12)===
+  // 基準只計入「各上傳平台皆有數據」的集數:例如這次上傳 Apple+Spotify+YouTube,
+  // 就只算三平台都有數字的集數;缺任一平台(如 YouTube 沒對到、Reels)的集數不進分母也不進分子。
+  // 這是為了避免缺漏平台的集數把平均拉低,造成不公平比較。
+  //
+  // 注意:allMerged 是第一輪合併,沒經過可疑配對審查,所以先把使用者確認過的配對
+  // 重新套上(用 _key 對回來),否則 YouTube 標題不同的集數會被誤判成「缺 YouTube」。
+  // 限制:分析區間外的集數沒被審查過,若它的 YouTube 標題不同,仍會被排除在平均之外。
+  const byKey = new Map(allMerged.map(d => [d._key, d]));
+  const absorbedKeys = new Set();
+  (state.approvedFuzzy || []).forEach(r => {
+    const target = byKey.get(r.targetKey);
+    const match = byKey.get(r.matchKey);
+    if (target && match && match[r.platform] === null && target[r.platform] !== null) {
+      match[r.platform] = target[r.platform];
+      absorbedKeys.add(r.targetKey);
+    }
+  });
+  const allMergedReviewed = allMerged.filter(d => !absorbedKeys.has(d._key));
+
+  const uploadedPlatforms = ['apple', 'spotify', 'yt'].filter(p => state[p] && state[p].length > 0);
+  const completeRows = allMergedReviewed.filter(d => uploadedPlatforms.every(p => d[p] !== null));
+  state.allTimeAvg = completeRows.length > 0
+    ? Math.round(completeRows.reduce((s, d) => s + rowTotal(d), 0) / completeRows.length)
+    : 0;
+  state.allTimeAvgCount = completeRows.length;
+  state.uploadedPlatforms = uploadedPlatforms;
+
+  // === 開播至今播放排行榜 TOP 10(v12,不受分析區間影響)===
+  state.allTimeTop10 = [...allMergedReviewed]
+    .sort((a, b) => rowTotal(b) - rowTotal(a))
+    .slice(0, 10)
+    .map(d => ({ title: d.title, apple: d.apple, spotify: d.spotify, yt: d.yt }));
+
   // 上個月:上個月 1 號 ~ 月底「上架」的集數總和
   const now = new Date();
   const lastMonthFirst = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   const lastMonthLast = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
   const lastMonthLabel = `${lastMonthFirst.getFullYear()}/${String(lastMonthFirst.getMonth() + 1).padStart(2, '0')}`;
-  const lastMonthPlays = allMerged.reduce((s, d) => {
+  // 注意:要用 allMergedReviewed(已重套配對並剔除被吸收的孤兒列),
+  // 用 allMerged 會把「值已被吸收進主列的孤兒列」再加一次,重複計算。
+  const lastMonthPlays = allMergedReviewed.reduce((s, d) => {
     const dt = d.dateObj;
     if (dt && dt >= lastMonthFirst && dt <= lastMonthLast) return s + rowTotal(d);
     return s;
@@ -981,6 +1024,7 @@ function renderMatchSummary(data) {
     <div class="match-stat"><span>YouTube 有資料</span><strong>${yt}</strong></div>
     <div class="match-stat"><span>單集總數</span><strong>${data.length}</strong></div>
     ${fuzzy > 0 ? `<div class="match-stat"><span>後備比對成功</span><strong>${fuzzy}</strong></div>` : ''}
+    <div class="match-stat"><span>開播至今單集平均</span><strong>${num(state.allTimeAvg)}</strong></div>
   `;
 }
 
@@ -994,7 +1038,9 @@ function renderCharts(data) {
   Chart.defaults.color = '#444';
   Chart.defaults.font.size = 12;
 
-  const PALETTE = { apple: '#c8341a', spotify: '#1d9b54', yt: '#555' };
+  // yt 必須用六位數色碼:程式會在色碼後面接兩位透明度(如 + '20'),
+// 三位數 '#555' 接出來是 '#55520' 無效色,YouTube 圖例方塊會變黑色實心(v12 修過)。
+const PALETTE = { apple: '#c8341a', spotify: '#1d9b54', yt: '#555555' };
 
   const sorted = [...data].filter(d => d.dateObj).sort((a, b) => a.dateObj - b.dateObj);
   charts.trend = new Chart(document.getElementById('chart-trend'), {
@@ -1037,6 +1083,28 @@ function renderCharts(data) {
         { label: 'Apple', data: top10.map(d => d.apple || 0), backgroundColor: PALETTE.apple },
         { label: 'Spotify', data: top10.map(d => d.spotify || 0), backgroundColor: PALETTE.spotify },
         { label: 'YouTube', data: top10.map(d => d.yt || 0), backgroundColor: PALETTE.yt },
+      ]
+    },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'top', align: 'end' } },
+      scales: {
+        x: { stacked: true, beginAtZero: true, grid: { color: '#e5dec9' } },
+        y: { stacked: true, grid: { display: false }, ticks: { font: { size: 11 }, crossAlign: 'far' } }
+      }
+    }
+  });
+
+  // 開播至今播放排行榜 TOP 10(v12):用全部資料,不受分析區間影響
+  const allTop10 = state.allTimeTop10 || [];
+  charts.rankingAlltime = new Chart(document.getElementById('chart-ranking-alltime'), {
+    type: 'bar',
+    data: {
+      labels: allTop10.map(d => truncate(d.title, 22)),
+      datasets: [
+        { label: 'Apple', data: allTop10.map(d => d.apple || 0), backgroundColor: PALETTE.apple },
+        { label: 'Spotify', data: allTop10.map(d => d.spotify || 0), backgroundColor: PALETTE.spotify },
+        { label: 'YouTube', data: allTop10.map(d => d.yt || 0), backgroundColor: PALETTE.yt },
       ]
     },
     options: {
@@ -1126,6 +1194,21 @@ function renderCharts(data) {
 // ============================================================
 // 11. 表格(排序 + 搜尋)
 // ============================================================
+
+// 「收聽平均比較」欄(v12):該集全平台總計 vs 開播至今單集平均。
+// 高於平均=紅色箭頭朝上、低於=綠色箭頭朝下(台股慣例:紅漲綠跌)。
+// 缺任一上傳平台數據的集數不參與比較(顯示 —),因為它的總計天生偏低,比了不公平。
+function cmpToAvgHtml(d) {
+  const avg = state.allTimeAvg || 0;
+  const platforms = state.uploadedPlatforms || [];
+  if (!avg || platforms.length === 0) return '—';
+  const complete = platforms.every(p => d[p] !== null);
+  if (!complete) return '—';
+  const diffPct = ((d.total - avg) / avg) * 100;
+  if (d.total > avg) return `<span class="cmp-avg up">▲ +${diffPct.toFixed(0)}%</span>`;
+  if (d.total < avg) return `<span class="cmp-avg down">▼ ${diffPct.toFixed(0)}%</span>`;
+  return '<span class="cmp-avg">持平</span>';
+}
 function renderTable(allData) {
   // 套用搜尋:用空格分隔多個關鍵字,符合任一個就顯示(OR)。
   // 例:打「鏡爆點 社會線上」會把這兩種集數一起列出來。
@@ -1200,6 +1283,7 @@ function renderTable(allData) {
         <td class="num platform-spotify">${num(d.spotify)}</td>
         <td class="num platform-yt">${num(d.yt)}</td>
         <td class="num"><strong>${num(d.total)}</strong></td>
+        <td class="num">${cmpToAvgHtml(d)}</td>
         <td class="note-cell">${noteCell}</td>
       </tr>
     `;
@@ -1324,7 +1408,16 @@ async function exportStandaloneHTML() {
     ytOriginalTitle: d._ytOriginalTitle || null,
     recentWeek: _isRecentWeek(d.dateObj),
     note: (state.notes[d._key] || '').trim() || null,  // 製作人手填備註,凍結進快照
+    // v12:各上傳平台皆有數據才參與「收聽平均比較」,匯出時把判斷結果凍結下來
+    complete: (state.uploadedPlatforms || []).length > 0 &&
+      state.uploadedPlatforms.every(p => d[p] !== null),
   }));
+
+  // v12:開播至今單集平均 + 開播至今 TOP 10,匯出時凍結成快照
+  const alltimeToEmbed = {
+    avg: state.allTimeAvg || 0,
+    top10: state.allTimeTop10 || [],
+  };
 
   const subData = {
     apple: document.getElementById('sub-apple').value.trim(),
@@ -1431,13 +1524,16 @@ ${styleEl.outerHTML}
 <script>
 const EMBEDDED_DATA = ${JSON.stringify(dataToEmbed)};
 const SUB_DATA = ${JSON.stringify(subData)};
+const ALLTIME = ${JSON.stringify(alltimeToEmbed)};
 
 const data = EMBEDDED_DATA.map(d => ({
   ...d,
   dateObj: d.dateISO ? new Date(d.dateISO) : null,
 }));
 
-const PALETTE = { apple: '#c8341a', spotify: '#1d9b54', yt: '#555' };
+// yt 必須用六位數色碼:程式會在色碼後面接兩位透明度(如 + '20'),
+// 三位數 '#555' 接出來是 '#55520' 無效色,YouTube 圖例方塊會變黑色實心(v12 修過)。
+const PALETTE = { apple: '#c8341a', spotify: '#1d9b54', yt: '#555555' };
 
 function num(n) {
   if (n === null || n === undefined) return '—';
@@ -1454,6 +1550,15 @@ function escapeHtml(s) {
   return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 function escapeAttr(s) { return String(s || '').replace(/"/g, '&quot;'); }
+
+// 「收聽平均比較」欄(v12):與主程式的 cmpToAvgHtml 同邏輯,基準與 complete 旗標已凍結
+function cmpToAvgHtml(d) {
+  if (!ALLTIME.avg || !d.complete) return '—';
+  const diffPct = ((d.total - ALLTIME.avg) / ALLTIME.avg) * 100;
+  if (d.total > ALLTIME.avg) return '<span class="cmp-avg up">▲ +' + diffPct.toFixed(0) + '%</span>';
+  if (d.total < ALLTIME.avg) return '<span class="cmp-avg down">▼ ' + diffPct.toFixed(0) + '%</span>';
+  return '<span class="cmp-avg">持平</span>';
+}
 
 // 設定訂閱數
 (function setSubs() {
@@ -1524,6 +1629,27 @@ new Chart(document.getElementById('chart-ranking'), {
       { label: 'Apple', data: top10.map(d => d.apple || 0), backgroundColor: PALETTE.apple },
       { label: 'Spotify', data: top10.map(d => d.spotify || 0), backgroundColor: PALETTE.spotify },
       { label: 'YouTube', data: top10.map(d => d.yt || 0), backgroundColor: PALETTE.yt },
+    ]
+  },
+  options: {
+    indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { position: 'top', align: 'end' } },
+    scales: {
+      x: { stacked: true, beginAtZero: true, grid: { color: '#e5dec9' } },
+      y: { stacked: true, grid: { display: false }, ticks: { font: { size: 11 }, crossAlign: 'far' } }
+    }
+  }
+});
+
+// 開播至今播放排行榜 TOP 10(v12):資料已在匯出時凍結於 ALLTIME.top10
+new Chart(document.getElementById('chart-ranking-alltime'), {
+  type: 'bar',
+  data: {
+    labels: ALLTIME.top10.map(d => truncate(d.title, 22)),
+    datasets: [
+      { label: 'Apple', data: ALLTIME.top10.map(d => d.apple || 0), backgroundColor: PALETTE.apple },
+      { label: 'Spotify', data: ALLTIME.top10.map(d => d.spotify || 0), backgroundColor: PALETTE.spotify },
+      { label: 'YouTube', data: ALLTIME.top10.map(d => d.yt || 0), backgroundColor: PALETTE.yt },
     ]
   },
   options: {
@@ -1655,6 +1781,7 @@ function renderTable() {
       '<td class="num platform-spotify">' + num(d.spotify) + '</td>' +
       '<td class="num platform-yt">' + num(d.yt) + '</td>' +
       '<td class="num"><strong>' + num(d.total) + '</strong></td>' +
+      '<td class="num">' + cmpToAvgHtml(d) + '</td>' +
       '<td class="note-cell">' + noteCell + '</td>' +
     '</tr>';
   }).join('');
