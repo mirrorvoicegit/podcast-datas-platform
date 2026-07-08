@@ -8,14 +8,20 @@
  * 1. 開一個新的 Google 試算表(名稱隨意,例如「節目收聽數據彙整」)。
  * 2. 上方選單「擴充功能」→「Apps Script」。
  * 3. 把這整份檔案的內容貼進去(取代原本的 myFunction),存檔。
- * 4. 把下面 TOKEN 的值改成你自己想的通行碼(隨便一串英數字,越長越好)。
+ * 4. TOKEN 已設定為節目組共用通行碼(與 tool-1 內建的一致),不用改。
  * 5. 右上「部署」→「新增部署作業」→ 類型選「網路應用程式」:
  *      - 執行身分:我
  *      - 具有存取權的使用者:任何人
  *    按「部署」,複製產生的「網路應用程式 URL」。
- * 6. 把這個 URL 和通行碼填進 tool-1 的「彙整表設定」。
+ * 6. 把這個 URL 填進 tool-1 報表頁最下方的「彙整表設定」
+ *    (或交給維護的 AI 寫進 tool-1/app.js 的 DEFAULT_SHEET_URL,所有人免設定)。
  * 7. 主管看總覽:直接開同一個 URL(瀏覽器打開就是總覽頁),
  *    或直接看這張試算表本身。
+ *
+ * ── 之後更新這份程式時 ──────────────────────────────────────
+ * 貼上新版程式碼後,要用「部署」→「管理部署作業」→ 鉛筆圖示 →
+ * 版本選「新版本」→「部署」。不要用「新增部署作業」,那會產生新網址,
+ * 舊網址就失效了。
  *
  * ── 資料放哪 ──────────────────────────────────────────────
  * 「上傳紀錄」分頁:每次上傳追加一列(保留歷史,可自行畫圖表)。
@@ -26,7 +32,7 @@
  * 若要限制觀看,部署時把存取權改成「僅限貴機構使用者」即可。
  */
 
-const TOKEN = '請把這串換成你自己的通行碼';
+const TOKEN = '1oqZhaoCt3-Exr8cpvTf1uHczG_2qzpszlzwZLkl8X1O9OS9NzDdz2vS7';
 
 const LOG_SHEET = '上傳紀錄';
 const LATEST_SHEET = '最新總覽';
@@ -62,8 +68,27 @@ function doPost(e) {
   ];
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  // 上傳紀錄:以「節目＋日期」為一個單位。同一節目同一天重複上傳就整列覆蓋,
+  // 不同天才新增一列(v13.1,維護者指定的行為)。
   const log = getOrCreateSheet(ss, LOG_SHEET);
-  log.appendRow(row);
+  const todayKey = Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyy/MM/dd');
+  const lastLogRow = log.getLastRow();
+  let overwrote = false;
+  if (lastLogRow > 1) {
+    const keys = log.getRange(2, 1, lastLogRow - 1, 2).getValues(); // [上傳時間, 節目名稱]
+    for (let i = 0; i < keys.length; i++) {
+      const t = keys[i][0];
+      const sameDay = (t instanceof Date) &&
+        Utilities.formatDate(t, 'Asia/Taipei', 'yyyy/MM/dd') === todayKey;
+      if (sameDay && keys[i][1] === data.show) {
+        log.getRange(i + 2, 1, 1, row.length).setValues([row]);
+        overwrote = true;
+        break;
+      }
+    }
+  }
+  if (!overwrote) log.appendRow(row);
 
   // 最新總覽:同名節目就整列覆蓋,沒有就新增
   const latest = getOrCreateSheet(ss, LATEST_SHEET);

@@ -638,10 +638,8 @@ function showReport() {
   document.getElementById('report').classList.add('active');
   window.scrollTo({top: 0, behavior: 'smooth'});
 
-  // v13:若使用者在彙整表設定勾了「自動上傳」,報表產出時自動送摘要
-  const cfg = getSheetCfg();
-  if (cfg.auto && cfg.url && cfg.token) uploadToSheet(true);
-  else setSheetStatus('', '');
+  // v13.1:上傳改由「下載報表」觸發,這裡只清掉上一輪的狀態文字
+  setSheetStatus('', '');
 }
 
 // ============================================================
@@ -1088,7 +1086,18 @@ const PALETTE = { apple: '#c8341a', spotify: '#1d9b54', yt: '#555555' };
       responsive: true, maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
       plugins: {
-        legend: { position: 'top', align: 'end' },
+        legend: { position: 'top', align: 'end', labels: {
+          // 圖例改實心色塊,與排行榜圖一致(線圖預設是框線+半透明填色,兩張圖並列不一致)
+          generateLabels(chart) {
+            const items = Chart.defaults.plugins.legend.labels.generateLabels(chart);
+            items.forEach(it => {
+              const c = chart.data.datasets[it.datasetIndex].borderColor;
+              it.fillStyle = c;
+              it.strokeStyle = c;
+            });
+            return items;
+          }
+        } },
         tooltip: {
           callbacks: {
             title: (items) => {
@@ -1314,7 +1323,7 @@ function renderTable(allData) {
         <td class="num platform-spotify">${num(d.spotify)}</td>
         <td class="num platform-yt">${num(d.yt)}</td>
         <td class="num"><strong>${num(d.total)}</strong></td>
-        <td class="num">${cmpToAvgHtml(d)}</td>
+        <td class="cmp-cell">${cmpToAvgHtml(d)}</td>
         <td class="note-cell">${noteCell}</td>
       </tr>
     `;
@@ -1389,20 +1398,26 @@ if (searchClear) {
 }
 
 // ============================================================
-// 11.5 上傳摘要到彙整表(v13,Google Apps Script)
+// 11.5 上傳摘要到彙整表(v13,Google Apps Script;v13.1 改為跟著「下載報表」自動觸發)
 // ============================================================
 // 只送 state.uploadSnapshot 的摘要數字,不含逐集明細與備註。
 // POST 用預設 Content-Type(text/plain)避免 CORS preflight——Apps Script 不會回應 OPTIONS。
-const SHEET_CFG_KEYS = { url: 'tool1SheetUrl', token: 'tool1SheetToken', auto: 'tool1SheetAuto' };
+const SHEET_CFG_KEYS = { url: 'tool1SheetUrl', token: 'tool1SheetToken' };
+
+// 預設通行碼:寫死在程式裡讓製作人免設定。注意:這個 repo 是公開的,
+// 這組通行碼等於公開,擋的只是無聊亂寫,不是真正的安全機制(維護者已知情)。
+const DEFAULT_SHEET_TOKEN = '1oqZhaoCt3-Exr8cpvTf1uHczG_2qzpszlzwZLkl8X1O9OS9NzDdz2vS7';
+// 彙整表網址預設值:維護者部署 Apps Script 後,把網址填進下面引號內,
+// 所有製作人就完全免設定;留空則各自在「彙整表設定」填一次。
+const DEFAULT_SHEET_URL = '';
 
 function getSheetCfg() {
   try {
     return {
-      url: localStorage.getItem(SHEET_CFG_KEYS.url) || '',
-      token: localStorage.getItem(SHEET_CFG_KEYS.token) || '',
-      auto: localStorage.getItem(SHEET_CFG_KEYS.auto) === '1',
+      url: localStorage.getItem(SHEET_CFG_KEYS.url) || DEFAULT_SHEET_URL,
+      token: localStorage.getItem(SHEET_CFG_KEYS.token) || DEFAULT_SHEET_TOKEN,
     };
-  } catch (e) { return { url: '', token: '', auto: false }; }
+  } catch (e) { return { url: DEFAULT_SHEET_URL, token: DEFAULT_SHEET_TOKEN }; }
 }
 
 function setSheetStatus(msg, kind) {
@@ -1412,22 +1427,19 @@ function setSheetStatus(msg, kind) {
   el.className = 'sheet-status' + (kind ? ' ' + kind : '');
 }
 
-async function uploadToSheet(silent) {
+// v13.1:由「下載報表」觸發。上傳失敗不影響下載(報表照樣產出,狀態列顯示原因)。
+async function uploadToSheet() {
   const cfg = getSheetCfg();
   if (!cfg.url || !cfg.token) {
-    if (!silent) toggleSheetSettings(true);
-    setSheetStatus('請先完成下方彙整表設定(網址與通行碼)', 'warn');
+    setSheetStatus('彙整表未設定,這次只下載報表、沒有上傳(點右方「彙整表設定」填入網址)', 'warn');
     return;
   }
-  if (!state.uploadSnapshot) {
-    setSheetStatus('還沒有可上傳的報表', 'warn');
-    return;
-  }
+  if (!state.uploadSnapshot) return;
   if (!state.uploadSnapshot.show) {
-    setSheetStatus('請先在上方填「節目名稱」再上傳(彙整表以節目名稱歸戶)', 'warn');
+    setSheetStatus('報表已下載,但沒上傳彙整表:請填「節目名稱」後重新下載(彙整表以節目名稱歸戶)', 'warn');
     return;
   }
-  setSheetStatus('上傳中…', '');
+  setSheetStatus('報表摘要上傳中…', '');
   try {
     const resp = await fetch(cfg.url, {
       method: 'POST',
@@ -1435,12 +1447,12 @@ async function uploadToSheet(silent) {
     });
     const out = await resp.json().catch(() => null);
     if (out && out.ok) {
-      setSheetStatus(`已上傳到彙整表(${state.uploadSnapshot.generatedAt})`, 'ok');
+      setSheetStatus(`報表摘要已同步到彙整表(${state.uploadSnapshot.generatedAt})`, 'ok');
     } else {
-      setSheetStatus(`上傳失敗:${out && out.error ? out.error : 'HTTP ' + resp.status}`, 'err');
+      setSheetStatus(`彙整表上傳失敗:${out && out.error ? out.error : 'HTTP ' + resp.status}(報表本身已正常下載)`, 'err');
     }
   } catch (e) {
-    setSheetStatus('上傳失敗:連不到彙整表網址(網路或設定有誤)', 'err');
+    setSheetStatus('彙整表上傳失敗:連不到彙整表網址(報表本身已正常下載)', 'err');
   }
 }
 
@@ -1453,25 +1465,21 @@ function toggleSheetSettings(show) {
     const cfg = getSheetCfg();
     document.getElementById('sheet-url').value = cfg.url;
     document.getElementById('sheet-token').value = cfg.token;
-    document.getElementById('sheet-auto').checked = cfg.auto;
   }
 }
 
 (function initSheetUpload() {
-  const btnUpload = document.getElementById('btn-upload-sheet');
-  const btnSettings = document.getElementById('btn-sheet-settings');
+  const linkSettings = document.getElementById('btn-sheet-settings');
   const btnSave = document.getElementById('btn-sheet-save');
-  if (!btnUpload) return;
-  btnUpload.addEventListener('click', () => uploadToSheet(false));
-  btnSettings.addEventListener('click', () => toggleSheetSettings());
+  if (!linkSettings) return;
+  linkSettings.addEventListener('click', (e) => { e.preventDefault(); toggleSheetSettings(); });
   btnSave.addEventListener('click', () => {
     try {
       localStorage.setItem(SHEET_CFG_KEYS.url, document.getElementById('sheet-url').value.trim());
       localStorage.setItem(SHEET_CFG_KEYS.token, document.getElementById('sheet-token').value.trim());
-      localStorage.setItem(SHEET_CFG_KEYS.auto, document.getElementById('sheet-auto').checked ? '1' : '0');
     } catch (e) { /* ignore */ }
     toggleSheetSettings(false);
-    setSheetStatus('設定已儲存', 'ok');
+    setSheetStatus('設定已儲存,下次按「下載報表」時會自動同步', 'ok');
   });
 })();
 
@@ -1483,6 +1491,10 @@ document.getElementById('btn-export-html').addEventListener('click', exportStand
 
 async function exportStandaloneHTML() {
   if (!state.merged) return;
+
+  // v13.1:按「下載報表」時一併把摘要同步到彙整表。
+  // 不 await:上傳失敗或很慢都不影響下載,結果顯示在狀態列。
+  uploadToSheet();
   const showName = document.getElementById('show-name').value.trim() || '節目';
   const producer = document.getElementById('producer-name').value.trim();
   const today = localDateStr();
@@ -1721,7 +1733,18 @@ new Chart(document.getElementById('chart-trend'), {
     responsive: true, maintainAspectRatio: false,
     interaction: { mode: 'index', intersect: false },
     plugins: {
-      legend: { position: 'top', align: 'end' },
+      legend: { position: 'top', align: 'end', labels: {
+          // 圖例改實心色塊,與排行榜圖一致(線圖預設是框線+半透明填色,兩張圖並列不一致)
+          generateLabels(chart) {
+            const items = Chart.defaults.plugins.legend.labels.generateLabels(chart);
+            items.forEach(it => {
+              const c = chart.data.datasets[it.datasetIndex].borderColor;
+              it.fillStyle = c;
+              it.strokeStyle = c;
+            });
+            return items;
+          }
+        } },
       tooltip: {
         callbacks: {
           title: (items) => {
@@ -1899,7 +1922,7 @@ function renderTable() {
       '<td class="num platform-spotify">' + num(d.spotify) + '</td>' +
       '<td class="num platform-yt">' + num(d.yt) + '</td>' +
       '<td class="num"><strong>' + num(d.total) + '</strong></td>' +
-      '<td class="num">' + cmpToAvgHtml(d) + '</td>' +
+      '<td class="cmp-cell">' + cmpToAvgHtml(d) + '</td>' +
       '<td class="note-cell">' + noteCell + '</td>' +
     '</tr>';
   }).join('');
