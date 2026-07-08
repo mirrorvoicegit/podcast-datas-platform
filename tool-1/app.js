@@ -1456,7 +1456,7 @@ async function uploadToSheet() {
   try {
     const resp = await fetch(cfg.url, {
       method: 'POST',
-      body: JSON.stringify({ token: cfg.token, tool: 'RSS節目收聽數據分析', ...state.uploadSnapshot }),
+      body: JSON.stringify({ token: cfg.token, tool: 'RSS節目收聽分析', ...state.uploadSnapshot }),
     });
     const out = await resp.json().catch(() => null);
     if (out && out.ok) {
@@ -1805,7 +1805,7 @@ ${styleEl.outerHTML}
       <span>鏡好聽節目組專用</span>
       <span>報表產出時間 ${exportTimeStr}</span>
     </div>
-    <h1>RSS節目收聽<br>數據分析報告</h1>
+    <h1>RSS節目收聽<br>分析報告</h1>
   </header>
   ${reportSection.outerHTML}
   <footer class="standalone-footer">
