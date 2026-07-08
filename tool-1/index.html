@@ -812,6 +812,11 @@
 
   .tag.missing { background: #fff; border: 1px dashed var(--line); color: var(--ink-faint); }
 
+  /* 收聽平均比較欄(v12):紅漲綠跌,台股慣例 */
+  .cmp-avg { font-size: 12px; white-space: nowrap; color: var(--ink-faint); }
+  .cmp-avg.up { color: #c8341a; font-weight: 700; }
+  .cmp-avg.down { color: #1d9b54; font-weight: 700; }
+
   /* 匹配狀況區 */
   .match-summary {
     display: flex;
@@ -1474,11 +1479,20 @@
         </div>
       </div>
 
+      <!-- 開播至今排行榜(v12,不受分析區間影響) -->
+      <div class="chart-block">
+        <h3>開播至今播放排行榜 TOP 10</h3>
+        <div class="chart-sub">全部集數的三平台加總,不受上方分析區間影響,看節目史上最強的十集</div>
+        <div class="chart-canvas-wrap">
+          <canvas id="chart-ranking-alltime"></canvas>
+        </div>
+      </div>
+
       <div class="chart-row">
         <!-- 排行榜 -->
         <div class="chart-block">
           <h3>單集播放排行榜 TOP 10</h3>
-          <div class="chart-sub">三平台加總,找出爆紅集</div>
+          <div class="chart-sub">分析區間內三平台加總,找出爆紅集</div>
           <div class="chart-canvas-wrap">
             <canvas id="chart-ranking"></canvas>
           </div>
@@ -1530,6 +1544,7 @@
               <th class="num sortable" data-sort="spotify"><span class="th-label">Spotify<br>至今收聽</span><i class="info-tip" data-tip="Spotify 後台的 plays 欄位，這集的累積播放次數。">i</i></th>
               <th class="num sortable" data-sort="yt"><span class="th-label">YouTube<br>至今收聽</span><i class="info-tip" data-tip="YouTube 的觀看次數。已排除時長低於門檻的 Shorts 短影音。">i</i></th>
               <th class="num sortable" data-sort="total"><span class="th-label">全平台<br>總計</span><i class="info-tip" data-tip="三平台相加，參考用。三平台計算邏輯不同、同一人可能重複計算，不是精準總人次。">i</i></th>
+              <th class="num"><span class="th-label">收聽平均<br>比較</span><i class="info-tip" data-tip="該集全平台總計對比「開播至今單集平均」的高低（紅↑高於平均、綠↓低於平均）。平均只計入各上傳平台皆有數據的集數；缺任一平台數據的集數不參與比較，顯示 —。注意：越新的集數累積時間越短，低於平均不代表表現差。">i</i></th>
               <th>備註</th>
             </tr>
           </thead>
