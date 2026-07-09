@@ -27,6 +27,18 @@
 
 ## Tool-1：RSS節目收聽分析
 
+### v15 — 2026.07.09
+- **整段移除「上傳摘要到彙整表」（v13 起）與「AI 觀點」（v14 起）兩個功能**，含程式碼、UI、說明文字
+- 決策理由（維護者拍板）：彙整表整體邏輯（怎麼跟未來 tool-3 分工、資料怎麼累積）還在重新思考中，先把舊方案連同依賴它的 AI 觀點一起拿掉，避免留著半套功能，等想清楚了再重新設計、重做更乾淨
+- 移除範圍：
+  - `tool-1/app.js`：`uploadToSheet`／`state.uploadSnapshot`／`SHEET_CFG_KEYS`／`DEFAULT_SHEET_TOKEN`／`DEFAULT_SHEET_URL`／`generateAiInsight`／`buildAiPrompt`／`renderAiOutput`／`AI_CFG_KEYS` 等全部相關函式與呼叫點
+  - `tool-1/index.html`：彙整表設定面板（`.sheet-upload-box`/`.sheet-settings`）、AI 觀點區塊（`#ai-insight-block`）、對應 CSS，以及頁面/頁尾提到「唯一例外」「上傳摘要到彙整表」的說明文字
+  - `apps-script/彙整表.gs` 整個檔案與 `apps-script/` 資料夾
+  - `dev/verify-ai.js`（整支只測 AI 觀點功能，功能移除後無測試對象，一併刪除；`dev/README.md` 同步移除相關段落）
+  - 入口頁 `index.html` 使用提醒的「唯一例外」條目
+- 程式碼仍完整留在 git 歷史，未來重新設計彙整表機制時可回頭取出參考，不必從零想
+- 驗證：`node -c`、div 配對、重複 id 檢查全過；`dev/verify.js` 17 項核心檢查全過（移除過程中抓到一處殘留呼叫 `setSheetStatus`，已一併清除）
+
 ### v14.5 — 2026.07.08
 - **撤回 v14.4「流動玻璃」改版**，背景與面板改回原本的紙感編輯室風格（純色背景＋極淡紙紋、不透明卡片）
 - 決策理由（維護者拍板）：tool-1 是逐列比對數字的工作介面，跟一次性瀏覽的入口頁性質不同——持續飄移的背景動畫與半透明面板會拉走閱讀時的周邊視覺注意力、降低長時間讀表時的視覺穩定性，優先順序是「好讀」高於「好看」
