@@ -20,4 +20,4 @@
 本 repo 只放工具程式碼。**任何節目收聽的 CSV／xlsx／log 資料檔都不應上傳到此處。**
 
 ---
-Tool-1 v14.5 · Tool-2 v11.5 · 2026.07.08（完整紀錄見 CHANGELOG.md）
+Tool-1 v15 · Tool-2 v11.5 · 2026.07.09（完整紀錄見 CHANGELOG.md）

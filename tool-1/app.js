@@ -644,9 +644,6 @@ function showReport() {
   document.getElementById('orphan-section').style.display = 'none';
   document.getElementById('report').classList.add('active');
   window.scrollTo({top: 0, behavior: 'smooth'});
-
-  // v13.1:上傳改由「下載報表」觸發,這裡只清掉上一輪的狀態文字
-  setSheetStatus('', '');
 }
 
 // ============================================================
@@ -839,12 +836,6 @@ function renderReport(showName, data) {
     ? `數據摘要：${showName}`
     : '數據摘要';
 
-  // 新報表產出:上一輪的 AI 觀點跟這批資料對不上了,清掉(v14)
-  state.aiInsight = null;
-  const aiOutputEl = document.getElementById('ai-output');
-  if (aiOutputEl) aiOutputEl.style.display = 'none';
-  setAiStatus('', '');
-
   // 製表人(選填,有填才顯示),顯示在右上 meta 區
   const producer = document.getElementById('producer-name').value.trim();
   const producerLine = document.getElementById('report-producer-line');
@@ -937,32 +928,6 @@ function renderReport(showName, data) {
   document.getElementById('sum-lastmonth').textContent = num(lastMonthPlays);
   document.getElementById('sum-lastmonth-label').textContent = `${lastMonthLabel} 上架集數`;
   document.getElementById('sum-period').textContent = num(periodPlays);
-
-  // === 彙整表上傳快照(v13)===
-  // 只收摘要數字,不含逐集明細與備註。使用者按「上傳到彙整表」(或啟用自動上傳)才會送出。
-  const _sumP = p => allMergedReviewed.reduce((s, d) => s + (d[p] || 0), 0);
-  const _nowD = new Date();
-  state.uploadSnapshot = {
-    show: showName || '',
-    producer: document.getElementById('producer-name').value.trim(),
-    generatedAt: `${localDateStr(_nowD).replace(/-/g, '/')} ${String(_nowD.getHours()).padStart(2, '0')}:${String(_nowD.getMinutes()).padStart(2, '0')}`,
-    periodFrom: document.getElementById('date-from').value || '',
-    periodTo: document.getElementById('date-to').value || '',
-    episodesInPeriod: episodes,
-    periodPlays,
-    allTimePlays,
-    allTimeAvg: state.allTimeAvg,
-    allTimeAvgCount: state.allTimeAvgCount,
-    lastMonthLabel,
-    lastMonthPlays,
-    appleTotal: _sumP('apple'),
-    spotifyTotal: _sumP('spotify'),
-    ytTotal: _sumP('yt'),
-    subApple: document.getElementById('sub-apple').value.trim(),
-    subSpotify: document.getElementById('sub-spotify').value.trim(),
-    subYt: document.getElementById('sub-yt').value.trim(),
-    totalEpisodes: data.length,
-  };
 
   // 訂閱數區
   renderSubscribers();
@@ -1411,232 +1376,6 @@ if (searchClear) {
 }
 
 // ============================================================
-// 11.5 上傳摘要到彙整表(v13,Google Apps Script;v13.1 改為跟著「下載報表」自動觸發)
-// ============================================================
-// 只送 state.uploadSnapshot 的摘要數字,不含逐集明細與備註。
-// POST 用預設 Content-Type(text/plain)避免 CORS preflight——Apps Script 不會回應 OPTIONS。
-const SHEET_CFG_KEYS = { url: 'tool1SheetUrl', token: 'tool1SheetToken' };
-
-// 預設通行碼:寫死在程式裡讓製作人免設定。注意:這個 repo 是公開的,
-// 這組通行碼等於公開,擋的只是無聊亂寫,不是真正的安全機制(維護者已知情)。
-const DEFAULT_SHEET_TOKEN = '1oqZhaoCt3-Exr8cpvTf1uHczG_2qzpszlzwZLkl8X1O9OS9NzDdz2vS7';
-// 彙整表網址預設值:維護者部署 Apps Script 後,把網址填進下面引號內,
-// 所有製作人就完全免設定;留空則各自在「彙整表設定」填一次。
-const DEFAULT_SHEET_URL = '';
-
-function getSheetCfg() {
-  try {
-    return {
-      url: localStorage.getItem(SHEET_CFG_KEYS.url) || DEFAULT_SHEET_URL,
-      token: localStorage.getItem(SHEET_CFG_KEYS.token) || DEFAULT_SHEET_TOKEN,
-    };
-  } catch (e) { return { url: DEFAULT_SHEET_URL, token: DEFAULT_SHEET_TOKEN }; }
-}
-
-function setSheetStatus(msg, kind) {
-  const el = document.getElementById('sheet-upload-status');
-  if (!el) return;
-  el.textContent = msg;
-  el.className = 'sheet-status' + (kind ? ' ' + kind : '');
-}
-
-// v13.1:由「下載報表」觸發。上傳失敗不影響下載(報表照樣產出,狀態列顯示原因)。
-async function uploadToSheet() {
-  const cfg = getSheetCfg();
-  if (!cfg.url || !cfg.token) {
-    setSheetStatus('彙整表未設定,這次只下載報表、沒有上傳(點右方「彙整表設定」填入網址)', 'warn');
-    return;
-  }
-  if (!state.uploadSnapshot) return;
-  if (!state.uploadSnapshot.show) {
-    setSheetStatus('報表已下載,但沒上傳彙整表:請填「節目名稱」後重新下載(彙整表以節目名稱歸戶)', 'warn');
-    return;
-  }
-  setSheetStatus('報表摘要上傳中…', '');
-  try {
-    const resp = await fetch(cfg.url, {
-      method: 'POST',
-      body: JSON.stringify({ token: cfg.token, tool: 'RSS節目收聽分析', ...state.uploadSnapshot }),
-    });
-    const out = await resp.json().catch(() => null);
-    if (out && out.ok) {
-      setSheetStatus(`報表摘要已同步到彙整表(${state.uploadSnapshot.generatedAt})`, 'ok');
-    } else {
-      setSheetStatus(`彙整表上傳失敗:${out && out.error ? out.error : 'HTTP ' + resp.status}(報表本身已正常下載)`, 'err');
-    }
-  } catch (e) {
-    setSheetStatus('彙整表上傳失敗:連不到彙整表網址(報表本身已正常下載)', 'err');
-  }
-}
-
-function toggleSheetSettings(show) {
-  const panel = document.getElementById('sheet-settings');
-  if (!panel) return;
-  const want = show === undefined ? panel.style.display === 'none' : show;
-  panel.style.display = want ? 'block' : 'none';
-  if (want) {
-    const cfg = getSheetCfg();
-    document.getElementById('sheet-url').value = cfg.url;
-    document.getElementById('sheet-token').value = cfg.token;
-  }
-}
-
-(function initSheetUpload() {
-  const linkSettings = document.getElementById('btn-sheet-settings');
-  const btnSave = document.getElementById('btn-sheet-save');
-  if (!linkSettings) return;
-  linkSettings.addEventListener('click', (e) => { e.preventDefault(); toggleSheetSettings(); });
-  btnSave.addEventListener('click', () => {
-    try {
-      localStorage.setItem(SHEET_CFG_KEYS.url, document.getElementById('sheet-url').value.trim());
-      localStorage.setItem(SHEET_CFG_KEYS.token, document.getElementById('sheet-token').value.trim());
-    } catch (e) { /* ignore */ }
-    toggleSheetSettings(false);
-    setSheetStatus('設定已儲存,下次按「下載報表」時會自動同步', 'ok');
-  });
-})();
-
-// ============================================================
-// 11.6 AI 觀點(v14,測試功能,Google Gemini API)
-// ============================================================
-// 只在使用者主動按「產生 AI 觀點」時才呼叫,不自動觸發、不隨自動上傳/下載觸發。
-// 送出去的內容只有:節目名稱、期間、彙總數字、本期單集標題與各平台數字(見 buildAiPrompt)。
-// 不含備註、原始 CSV、任何個資(平台本來就沒有聽眾個資,只有匿名累積播放數)。
-const AI_CFG_KEYS = { key: 'tool1GeminiKey', model: 'tool1GeminiModel' };
-
-function getGeminiCfg() {
-  try {
-    return {
-      key: localStorage.getItem(AI_CFG_KEYS.key) || '',
-      model: localStorage.getItem(AI_CFG_KEYS.model) || 'gemini-2.5-flash',
-    };
-  } catch (e) { return { key: '', model: 'gemini-2.5-flash' }; }
-}
-
-function setAiStatus(msg, kind) {
-  const el = document.getElementById('ai-status');
-  if (!el) return;
-  el.textContent = msg;
-  el.className = 'sheet-status' + (kind ? ' ' + kind : '');
-}
-
-function toggleAiSettings(show) {
-  const panel = document.getElementById('ai-settings');
-  if (!panel) return;
-  const want = show === undefined ? panel.style.display === 'none' : show;
-  panel.style.display = want ? 'block' : 'none';
-  if (want) {
-    const cfg = getGeminiCfg();
-    document.getElementById('ai-key').value = cfg.key;
-    document.getElementById('ai-model').value = cfg.model;
-  }
-}
-
-// 組 prompt:彙總數字取自 state.uploadSnapshot(彙整表上傳用的同一份摘要,見上方 11.5),
-// 單集列表取自目前畫面顯示的 state.merged(已套用分析區間篩選),依總計排序取前 20 集避免 payload 過大。
-function buildAiPrompt() {
-  const s = state.uploadSnapshot || {};
-  const top = [...(state.merged || [])]
-    .sort((a, b) => b.total - a.total)
-    .slice(0, 20)
-    .map((d, i) => `${i + 1}. ${d.title}｜Apple:${num(d.apple)}｜Spotify:${num(d.spotify)}｜YouTube:${num(d.yt)}｜總計:${num(d.total)}`)
-    .join('\n');
-
-  return `你是幫 Podcast 節目製作人看數據的分析助理。以下是「${s.show || '(未命名節目)'}」節目的收聽數據摘要,請用繁體中文,針對「收聽表現」與「選題/標題」兩個角度給出觀察與建議。
-
-規則:
-- 只根據下面提供的數字與標題推論,不要編造沒有依據的事實或平台演算法機制,不確定的地方就明說不確定。
-- 三平台的計算邏輯不同,且數字都是「累積至今」的快照、不是單一時段獨立發生量,越新的集數累積時間越短,分析時要考慮這個限制,不要做過度推論的因果結論。
-- 語氣直接、務實,先講結論再講細節,不要用「首先、其次」這種制式起手式,不要用英文裝飾詞或行銷語氣。
-- 使用對象是節目製作人本人,不是投資人簡報,不用「亮點」「洞察」這種空話,要講具體可執行的東西。
-- 產出約 200-350 字,不要用 Markdown 標題符號,可以分兩三小段。
-
-[數據摘要]
-分析區間:${s.periodFrom || '—'} ~ ${s.periodTo || '—'}
-期間集數:${num(s.episodesInPeriod)}
-期間總收聽:${num(s.periodPlays)}
-開播至今總收聽:${num(s.allTimePlays)}
-開播至今單集平均:${num(s.allTimeAvg)}(計入 ${num(s.allTimeAvgCount)} 集,缺任一平台數據的集數不計入)
-Apple累積:${num(s.appleTotal)} / Spotify累積:${num(s.spotifyTotal)} / YouTube累積:${num(s.ytTotal)}
-
-[本期單集列表,依全平台總計排序,最多列前 20 集]
-${top || '(本期無單集資料)'}`;
-}
-
-function renderAiOutput() {
-  const wrap = document.getElementById('ai-output');
-  if (!state.aiInsight) { wrap.style.display = 'none'; return; }
-  document.getElementById('ai-text').textContent = state.aiInsight.text;
-  document.getElementById('ai-meta').textContent = `${state.aiInsight.model} · 產生於 ${state.aiInsight.generatedAt}`;
-  wrap.style.display = 'block';
-}
-
-async function generateAiInsight() {
-  const cfg = getGeminiCfg();
-  if (!cfg.key) {
-    toggleAiSettings(true);
-    setAiStatus('請先在「AI 設定」貼上你的 Gemini API Key', 'warn');
-    return;
-  }
-  if (!state.merged || !state.uploadSnapshot) {
-    setAiStatus('請先產出報表', 'warn');
-    return;
-  }
-  setAiStatus('AI 分析中…', '');
-  document.getElementById('ai-output').style.display = 'none';
-
-  try {
-    const resp = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(cfg.model)}:generateContent?key=${encodeURIComponent(cfg.key)}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ parts: [{ text: buildAiPrompt() }] }] }),
-      }
-    );
-    const out = await resp.json().catch(() => null);
-    if (!resp.ok) {
-      const msg = out && out.error && out.error.message ? out.error.message : `HTTP ${resp.status}`;
-      setAiStatus(`AI 分析失敗:${msg}`, 'err');
-      return;
-    }
-    const parts = out && out.candidates && out.candidates[0] && out.candidates[0].content && out.candidates[0].content.parts;
-    const text = parts ? parts.map(p => p.text || '').join('') : '';
-    if (!text.trim()) {
-      setAiStatus('AI 沒有回傳內容,請再試一次', 'err');
-      return;
-    }
-    const now = new Date();
-    state.aiInsight = {
-      text: text.trim(),
-      model: cfg.model,
-      generatedAt: `${localDateStr(now).replace(/-/g, '/')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
-    };
-    renderAiOutput();
-    setAiStatus(`已產生(${state.aiInsight.generatedAt})`, 'ok');
-  } catch (e) {
-    setAiStatus('AI 分析失敗:連不到 Gemini API(檢查金鑰、網路,或瀏覽器擋了跨網域請求)', 'err');
-  }
-}
-
-(function initAiInsight() {
-  const btnGen = document.getElementById('btn-ai-generate');
-  const btnSettings = document.getElementById('btn-ai-settings');
-  const btnSave = document.getElementById('btn-ai-save');
-  if (!btnGen) return;
-  btnGen.addEventListener('click', generateAiInsight);
-  btnSettings.addEventListener('click', (e) => { e.preventDefault(); toggleAiSettings(); });
-  btnSave.addEventListener('click', () => {
-    try {
-      localStorage.setItem(AI_CFG_KEYS.key, document.getElementById('ai-key').value.trim());
-      localStorage.setItem(AI_CFG_KEYS.model, document.getElementById('ai-model').value);
-    } catch (e) { /* ignore */ }
-    toggleAiSettings(false);
-    setAiStatus('設定已儲存', 'ok');
-  });
-})();
-
-// ============================================================
 // 12. 匯出獨立 HTML
 // ============================================================
 document.getElementById('btn-print').addEventListener('click', () => window.print());
@@ -1645,9 +1384,6 @@ document.getElementById('btn-export-html').addEventListener('click', exportStand
 async function exportStandaloneHTML() {
   if (!state.merged) return;
 
-  // v13.1:按「下載報表」時一併把摘要同步到彙整表。
-  // 不 await:上傳失敗或很慢都不影響下載,結果顯示在狀態列。
-  uploadToSheet();
   const showName = document.getElementById('show-name').value.trim() || '節目';
   const producer = document.getElementById('producer-name').value.trim();
   const today = localDateStr();
@@ -1717,16 +1453,6 @@ async function exportStandaloneHTML() {
   reportSection.removeAttribute('id');
   reportSection.classList.add('active');
   reportSection.style.display = 'block';
-
-  // AI 觀點(v14):沒產生過就整塊移除,不留空殼。有產生的話,#ai-output 的內容
-  // 已經是 renderAiOutput() 寫進真實 DOM 的靜態文字,隨 cloneNode 一起凍結進匯出檔。
-  if (!state.aiInsight) {
-    const aiBlock = reportSection.querySelector('#ai-insight-block');
-    if (aiBlock) aiBlock.remove();
-  } else {
-    const aiBlock = reportSection.querySelector('#ai-insight-block');
-    if (aiBlock) aiBlock.removeAttribute('id');
-  }
 
   // 把可編輯的備註 textarea 凍結成靜態文字。
   // textarea 的值不會被 cloneNode/outerHTML 帶出來,所以從 state.notes(真實來源)取值,
