@@ -4,7 +4,7 @@
 
 ## 工具
 
-- **RSS節目收聽分析**（`tool-1/`）：分析節目在 Apple Podcast、Spotify、YouTube 三大平台的收聽表現。
+- **RSS節目收聽分析**（`tool-1/`）：分析節目在 Apple Podcast、Spotify、YouTube 的收聽表現；YouTube 若有影音版，可額外上傳第 4 個來源分開統計。
 - **鏡好聽平台收聽分析**（`tool-2/`）：分析鏡好聽 App 每週收聽 log。
 
 ## 使用方式
@@ -20,4 +20,4 @@
 本 repo 只放工具程式碼。**任何節目收聽的 CSV／xlsx／log 資料檔都不應上傳到此處。**
 
 ---
-Tool-1 v15 · Tool-2 v11.5 · 2026.07.09（完整紀錄見 CHANGELOG.md）
+Tool-1 v16 · Tool-2 v11.5 · 2026.07.20（完整紀錄見 CHANGELOG.md）

@@ -1,33 +1,71 @@
 // ============================================================
-// 節目收聽數據分析工具 v3
+// 節目收聽數據分析工具 v3(v16:支援 YouTube Podcast 版＋影音版雙來源)
 // ============================================================
 
 const state = {
   apple: null,
   spotify: null,
-  yt: null,
+  ytFiles: [],   // 最多 2 筆:{id, originalName, zipName, csvNameInZip, rows, role, suggestedRole, confidence, reason}
   merged: null,
   sortBy: 'date',
   sortDir: 'desc',
   searchQuery: '',
-  notes: {},  // 製作人手填的每集備註,key 是集數的 _key,純文字、不進統計
-  fileInfo: {},  // {apple:{name,count}, spotify:{...}, yt:{...}} 給檔案卡片清單顯示
+  notes: {},
+  fileInfo: {},
+  hasVideoSource: false,
 };
 
 const charts = {};
-let staged = null;  // { merged, fuzzyPairs, orphans }
+let staged = null;
 
 document.getElementById('today-date').textContent =
   new Date().toLocaleDateString('zh-TW', { year: 'numeric', month: 'long', day: 'numeric' });
 
 // ============================================================
+// 0. EP 編號辨識 + YouTube 角色關鍵字(集中設定)
+// ============================================================
+const EP_PATTERN = /(?:EP|Ep|ep)[\s.\-]?(\d{1,5})|第\s?(\d{1,5})\s?集/;
+const EP_STRIP_PATTERN = /(?:EP|Ep|ep)[\s.\-]?\d{1,5}|第\s?\d{1,5}\s?集/g;
+
+function extractEpisodeNumber(title) {
+  if (!title) return { raw: null, key: null, found: false };
+  const m = title.match(EP_PATTERN);
+  if (!m) return { raw: null, key: null, found: false };
+  const num = m[1] || m[2];
+  return { raw: m[0], key: String(parseInt(num, 10)), found: true };
+}
+
+const YT_ROLE_KEYWORDS = {
+  video: ['影音版', '影片版', '影像版', '影音', 'video', 'full video', '完整版影片'],
+  podcast: ['純podcast', 'podcast版', '音訊版', '聲音版', 'audio', 'voice'],
+};
+
+function normalizeForKeywordMatch(s) {
+  if (!s) return '';
+  return s
+    .toLowerCase()
+    .replace(/[　\s_\-]/g, '')
+    .replace(/[「」『』【】\[\]()（）.,，、]/g, '');
+}
+
+function detectYtRoleFromFilename(name) {
+  const norm = normalizeForKeywordMatch(name);
+  const hitVideo = YT_ROLE_KEYWORDS.video.some(k => norm.includes(normalizeForKeywordMatch(k)));
+  const hitPodcast = YT_ROLE_KEYWORDS.podcast.some(k => norm.includes(normalizeForKeywordMatch(k)));
+  if (hitVideo && hitPodcast) {
+    return { role: null, confidence: 'conflict', reason: '檔名同時含影音版與 Podcast 版關鍵字,無法判斷' };
+  }
+  if (hitVideo) return { role: 'video', confidence: 'high', reason: '檔名含「影音版」類關鍵字' };
+  if (hitPodcast) return { role: 'podcast', confidence: 'high', reason: '檔名含「Podcast 版」類關鍵字' };
+  return { role: null, confidence: null, reason: null };
+}
+
+// ============================================================
 // 期間選擇(下拉選單,全部用日曆單位,依上架日)
 // ============================================================
-// 計算各種期間的起訖日。回傳 { from: 'YYYY-MM-DD'|'', to: 'YYYY-MM-DD'|'' }
 function computePeriod(preset) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  // 用本地時區格式化,不能用 toISOString(那會轉成 UTC,台灣 UTC+8 會少一天)
   const iso = (d) => {
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -38,7 +76,6 @@ function computePeriod(preset) {
 
   switch (preset) {
     case 'lastweek': {
-      // 上一個完整週一~週日
       const dow = today.getDay() === 0 ? 7 : today.getDay();
       const thisMonday = new Date(today);
       thisMonday.setDate(today.getDate() - (dow - 1));
@@ -49,29 +86,29 @@ function computePeriod(preset) {
       return { from: iso(lastMonday), to: iso(lastSunday) };
     }
     case 'last30days': {
-      // 近一個月:今天往前推 30 天
       const from = new Date(today);
       from.setDate(today.getDate() - 30);
       return { from: iso(from), to: toStr };
     }
     case 'thisyear': {
-      // 年初至今
       const first = new Date(today.getFullYear(), 0, 1);
       return { from: iso(first), to: toStr };
     }
     case 'all': {
-      // 開播至今:用資料裡最早的上架日(載入資料後才知道)
       const earliest = getEarliestReleaseDate();
       return { from: earliest ? iso(earliest) : '', to: toStr };
     }
     default:
-      return null; // custom
+      return null;
   }
 }
 
-// 找出已上傳資料裡最早的上架日
 function getEarliestReleaseDate() {
-  const allItems = [...(state.apple || []), ...(state.spotify || []), ...(state.yt || [])];
+  const allItems = [
+    ...(state.apple || []),
+    ...(state.spotify || []),
+    ...state.ytFiles.flatMap(f => f.rows),
+  ];
   let earliest = null;
   for (const item of allItems) {
     const d = parseDate(item.releaseDate);
@@ -80,7 +117,6 @@ function getEarliestReleaseDate() {
   return earliest;
 }
 
-// 套用下拉選單選的期間
 function applyPeriodSelect() {
   const sel = document.getElementById('period-select');
   const preset = sel.value;
@@ -98,7 +134,6 @@ function applyPeriodSelect() {
   if (range) {
     document.getElementById('date-from').value = range.from;
     document.getElementById('date-to').value = range.to;
-    // 顯示實際套用的日期
     if (note) {
       if (range.from && range.to) {
         note.textContent = `${range.from} ~ ${range.to} 上架`;
@@ -111,7 +146,6 @@ function applyPeriodSelect() {
 
 document.getElementById('period-select').addEventListener('change', applyPeriodSelect);
 
-// 自訂日期改動時,把下拉切到「自訂」
 ['date-from', 'date-to'].forEach(id => {
   document.getElementById(id).addEventListener('input', () => {
     const sel = document.getElementById('period-select');
@@ -124,12 +158,10 @@ document.getElementById('period-select').addEventListener('change', applyPeriodS
   });
 });
 
-// 預設:最近兩週
 (function initDateRange() {
   applyPeriodSelect();
 })();
 
-// 節目名稱記憶(localStorage)
 (function initShowNameMemory() {
   const input = document.getElementById('show-name');
   if (!input) return;
@@ -142,7 +174,6 @@ document.getElementById('period-select').addEventListener('change', applyPeriodS
   });
 })();
 
-// 製作人記憶(localStorage)
 (function initProducerMemory() {
   const input = document.getElementById('producer-name');
   if (!input) return;
@@ -155,7 +186,6 @@ document.getElementById('period-select').addEventListener('change', applyPeriodS
   });
 })();
 
-// 訂閱數記憶(localStorage)+ 顯示上次數字
 (function initSubscriberMemory() {
   const fields = [
     { id: 'sub-apple', key: 'tool1SubApple' },
@@ -167,14 +197,11 @@ document.getElementById('period-select').addEventListener('change', applyPeriodS
     if (!input) return;
     try {
       const saved = localStorage.getItem(key);
-      const savedAt = localStorage.getItem(key + 'At');
       if (saved) {
-        // 顯示上次的數字當 placeholder,讓使用者看得到對照
         input.placeholder = `上次:${saved}`;
         input.dataset.lastValue = saved;
       }
     } catch (e) { /* ignore */ }
-    // 輸入時記住,並記下日期
     input.addEventListener('input', () => {
       const v = input.value.trim();
       if (!v) return;
@@ -187,12 +214,8 @@ document.getElementById('period-select').addEventListener('change', applyPeriodS
 })();
 
 // ============================================================
-// 1. 上傳(拖曳或點選,自動辨識平台)
+// 1. 上傳(拖曳或點選,自動辨識平台;支援 CSV 與 YouTube ZIP)
 // ============================================================
-
-// 看 CSV 第一列的欄位名,判斷這個檔是哪個平台。
-// 三平台欄位互不重疊:Apple 有 Episode Title+Plays、Spotify 有 name+plays、
-// YouTube 有 影片標題+觀看次數,所以看 header 就能可靠辨識,不會誤判。
 function detectPlatform(headers) {
   if (!headers) return null;
   const has = name => headers.includes(name);
@@ -207,7 +230,7 @@ const fileAllInput = document.getElementById('file-all');
 
 fileAllInput.addEventListener('change', e => {
   handleMultipleFiles(Array.from(e.target.files));
-  fileAllInput.value = ''; // 清空,讓同一批檔案能再次選取觸發
+  fileAllInput.value = '';
 });
 
 ['dragenter', 'dragover'].forEach(ev => {
@@ -224,57 +247,111 @@ fileAllInput.addEventListener('change', e => {
   });
 });
 dropzoneAll.addEventListener('drop', e => {
-  const files = Array.from(e.dataTransfer.files).filter(f => f.name.toLowerCase().endsWith('.csv'));
+  const files = Array.from(e.dataTransfer.files).filter(f => {
+    const n = f.name.toLowerCase();
+    return n.endsWith('.csv') || n.endsWith('.zip');
+  });
   handleMultipleFiles(files);
 });
 
-// 逐檔解析:先用 header 辨識平台,再丟給對應的 parsePlatformCSV。
-// 同一平台若被丟兩個檔,後者覆蓋前者。解析結果以檔案卡片清單呈現(與 Tool-2 一致)。
-function handleMultipleFiles(files) {
-  if (!files.length) return;
-  const errs = []; // 認不出/解析失敗的檔,額外列出
-  let pending = files.length;
+// 讀單一檔案(CSV 或 ZIP),回傳 { platform, rows, meta }。
+// ZIP 只找「表格資料.csv」(FR-2),不要誤把 總計.csv / 圖表資料.csv 當單集資料。
+async function readSourceFile(file) {
+  const lowerName = file.name.toLowerCase();
+  let csvText, zipName = null, csvNameInZip = null;
 
-  files.forEach(file => {
-    Papa.parse(file, {
-      header: true, skipEmptyLines: true,
-      complete: (result) => {
-        const headers = result.meta && result.meta.fields ? result.meta.fields : [];
-        const platform = detectPlatform(headers);
-        if (!platform) {
-          errs.push({ name: file.name, msg: '認不出平台' });
-        } else {
-          try {
-            const parsed = parsePlatformCSV(platform, result.data);
-            state[platform] = parsed;
-            state.fileInfo[platform] = { name: file.name, count: parsed.length };
-          } catch (err) {
-            errs.push({ name: file.name, msg: err.message });
-          }
-        }
-        if (--pending === 0) finishMulti(errs);
-      },
-      error: (err) => {
-        errs.push({ name: file.name, msg: '讀取失敗' });
-        if (--pending === 0) finishMulti(errs);
-      }
+  if (lowerName.endsWith('.zip')) {
+    if (typeof JSZip === 'undefined') {
+      throw new Error('ZIP 解析函式庫載入失敗,請改上傳解壓後的 CSV');
+    }
+    const buf = await file.arrayBuffer();
+    const zip = await JSZip.loadAsync(buf);
+    let entry = null, entryName = null;
+    zip.forEach((relPath, e) => {
+      if (entry || e.dir) return;
+      const base = relPath.split('/').pop();
+      if (base === '表格資料.csv') { entry = e; entryName = relPath; }
     });
-  });
+    if (!entry) throw new Error('ZIP 內找不到「表格資料.csv」');
+    csvText = await entry.async('string');
+    zipName = file.name;
+    csvNameInZip = entryName;
+  } else {
+    csvText = await file.text();
+  }
+
+  const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true });
+  const headers = parsed.meta && parsed.meta.fields ? parsed.meta.fields : [];
+  const platform = detectPlatform(headers);
+  if (!platform) {
+    throw new Error(zipName ? 'ZIP 內的表格資料.csv 認不出平台' : '認不出平台');
+  }
+  const rows = parsePlatformCSV(platform, parsed.data);
+  return { platform, rows, meta: { originalName: file.name, zipName, csvNameInZip } };
 }
 
-const PLATFORM_LABEL = { apple: 'APPLE', spotify: 'SPOTIFY', yt: 'YOUTUBE' };
+let ytFileSeq = 0;
+
+async function handleMultipleFiles(files) {
+  if (!files.length) return;
+  const errs = [];
+
+  const results = await Promise.all(files.map(async file => {
+    try {
+      const r = await readSourceFile(file);
+      return { file, ...r };
+    } catch (err) {
+      errs.push({ name: file.name, msg: err.message || '解析失敗' });
+      return null;
+    }
+  }));
+
+  results.filter(Boolean).forEach(r => {
+    if (r.platform === 'apple' || r.platform === 'spotify') {
+      state[r.platform] = r.rows;
+      state.fileInfo[r.platform] = { name: r.meta.zipName || r.meta.originalName, count: r.rows.length };
+    } else if (r.platform === 'yt') {
+      if (state.ytFiles.length >= 2) {
+        errs.push({ name: r.meta.originalName, msg: '已有兩份 YouTube 資料,請先移除一份再上傳' });
+        return;
+      }
+      const displayName = r.meta.zipName || r.meta.originalName;
+      const suggestion = detectYtRoleFromFilename(displayName);
+      state.ytFiles.push({
+        id: 'yt' + (++ytFileSeq),
+        originalName: r.meta.originalName,
+        zipName: r.meta.zipName,
+        csvNameInZip: r.meta.csvNameInZip,
+        rows: r.rows,
+        role: null,
+        suggestedRole: suggestion.role,
+        confidence: suggestion.confidence,
+        reason: suggestion.reason,
+      });
+    }
+  });
+
+  finishMulti(errs);
+}
+
+const PLATFORM_LABEL = { apple: 'APPLE', spotify: 'SPOTIFY' };
+
+function ytRoleLabel(f) {
+  if (f.role === 'video') return 'YOUTUBE 影音版';
+  if (f.role === 'podcast') return 'YOUTUBE PODCAST';
+  return 'YOUTUBE(待確認)';
+}
 
 function renderFilesList(errs = []) {
   const listEl = document.getElementById('dropzone-msg');
-  const uploadedCount = ['apple', 'spotify', 'yt'].filter(p => state.fileInfo[p]).length;
+  const uploadedCount = ['apple', 'spotify'].filter(p => state.fileInfo[p]).length + (state.ytFiles.length > 0 ? 1 : 0);
 
-  // v14.1:明顯的「已上傳」狀態,不然使用者不確定拖曳有沒有成功
   dropzoneAll.classList.toggle('uploaded', uploadedCount > 0);
   let html = '';
   if (uploadedCount > 0) {
-    html += `<div class="upload-status">✓ 已上傳 ${uploadedCount} 個檔案</div>`;
+    html += `<div class="upload-status">✓ 已上傳 ${uploadedCount} 個來源</div>`;
   }
-  ['apple', 'spotify', 'yt'].forEach(p => {
+  ['apple', 'spotify'].forEach(p => {
     const info = state.fileInfo[p];
     if (info) {
       html += `<div class="file-row">
@@ -285,6 +362,15 @@ function renderFilesList(errs = []) {
       </div>`;
     }
   });
+  state.ytFiles.forEach((f, idx) => {
+    const displayName = f.zipName || f.originalName;
+    html += `<div class="file-row">
+      <span class="file-platform yt">${ytRoleLabel(f)}</span>
+      <span class="file-name" title="${escapeAttr(displayName)}">${escapeHtml(displayName)}</span>
+      <span class="file-rows">${f.rows.length.toLocaleString('zh-TW')} 筆</span>
+      <button class="file-remove" data-yt-idx="${idx}" title="移除">✕</button>
+    </div>`;
+  });
   errs.forEach(e => {
     html += `<div class="file-row error">
       <span class="file-platform err">無法辨識</span>
@@ -294,13 +380,22 @@ function renderFilesList(errs = []) {
     </div>`;
   });
   listEl.innerHTML = html;
-  // 綁定移除鈕
-  listEl.querySelectorAll('.file-remove').forEach(btn => {
+
+  listEl.querySelectorAll('.file-remove[data-platform]').forEach(btn => {
     btn.addEventListener('click', (ev) => {
       ev.preventDefault();
       const p = btn.dataset.platform;
       state[p] = null;
       delete state.fileInfo[p];
+      renderFilesList();
+      checkReadyToGenerate();
+    });
+  });
+  listEl.querySelectorAll('.file-remove[data-yt-idx]').forEach(btn => {
+    btn.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      const idx = parseInt(btn.dataset.ytIdx, 10);
+      state.ytFiles.splice(idx, 1);
       renderFilesList();
       checkReadyToGenerate();
     });
@@ -313,13 +408,22 @@ function finishMulti(errs) {
 }
 
 function checkReadyToGenerate() {
-  const hasAtLeastTwo = [state.apple, state.spotify, state.yt].filter(Boolean).length >= 2;
+  const hasAtLeastTwo = [state.apple, state.spotify, state.ytFiles.length > 0 ? true : null].filter(Boolean).length >= 2;
   document.getElementById('btn-generate').disabled = !hasAtLeastTwo;
 }
 
 // ============================================================
 // 2. CSV 解析
 // ============================================================
+// FR-12:數值解析不可把空白/解析失敗靜默轉成 0,要跟真正的 0 分開。
+function parsePlaysNullable(raw) {
+  if (raw === undefined || raw === null) return null;
+  const s = String(raw).trim();
+  if (s === '') return null;
+  const n = parseInt(s.replace(/,/g, ''), 10);
+  return isNaN(n) ? null : n;
+}
+
 function parsePlatformCSV(platform, rows) {
   if (!rows || rows.length === 0) throw new Error('檔案是空的');
 
@@ -357,19 +461,26 @@ function parsePlatformCSV(platform, rows) {
     }
     return rows
       .filter(r => r['影片標題'] && r['影片標題'].trim() && r['內容'] !== '總計')
-      .map(r => ({
-        title: r['影片標題'].trim(),
-        plays: parseInt(r['觀看次數']) || 0,
-        releaseDate: r['影片發布時間'] || '',
-        duration: parseInt(r['時間長度']) || 0,
-      }));
+      .map(r => {
+        const ep = extractEpisodeNumber(r['影片標題'].trim());
+        return {
+          title: r['影片標題'].trim(),
+          plays: parsePlaysNullable(r['觀看次數']),
+          releaseDate: r['影片發布時間'] || '',
+          duration: parseInt(r['時間長度']) || 0,
+          videoId: r['內容'] || '',
+          epRaw: ep.raw,
+          epKey: ep.key,
+          epFound: ep.found,
+        };
+      });
   }
 }
 
 // ============================================================
 // 3. 流程控制
 // ============================================================
-document.getElementById('btn-generate').addEventListener('click', enterFuzzyReview);
+document.getElementById('btn-generate').addEventListener('click', startGenerateFlow);
 document.getElementById('btn-reset').addEventListener('click', () => location.reload());
 
 document.getElementById('btn-fuzzy-next').addEventListener('click', enterOrphanReview);
@@ -393,27 +504,232 @@ document.getElementById('btn-orphan-none').addEventListener('click', () => toggl
 document.getElementById('btn-back').addEventListener('click', () => {
   document.getElementById('report').classList.remove('active');
   document.getElementById('upload-section').style.display = 'block';
+  document.getElementById('ytrole-section').style.display = 'none';
   document.getElementById('fuzzy-section').style.display = 'none';
   document.getElementById('orphan-section').style.display = 'none';
   window.scrollTo({top: 0, behavior: 'smooth'});
 });
 
+function startGenerateFlow() {
+  if (state.ytFiles.length === 2) {
+    enterYtRoleReview();
+  } else {
+    resolveYtSources();
+    enterFuzzyReview();
+  }
+}
+
+// 依 state.ytFiles[].role 決定本次是否有雙來源(FR-13)。
+// 只有 1 份 YouTube 資料時,完全比照舊行為,只是內部欄位改名為 youtubePodcast。
+function resolveYtSources() {
+  const files = state.ytFiles;
+  let podcastRows = null, videoRows = null;
+
+  if (files.length === 1) {
+    podcastRows = files[0].rows;
+  } else if (files.length === 2) {
+    const podcastFile = files.find(f => f.role === 'podcast');
+    const videoFile = files.find(f => f.role === 'video');
+    podcastRows = podcastFile ? podcastFile.rows : null;
+    videoRows = videoFile ? videoFile.rows : null;
+  }
+
+  state.hasVideoSource = !!(podcastRows && videoRows);
+  state.ytPodcastRows = podcastRows;
+  state.ytVideoRows = videoRows;
+}
+
 // ============================================================
-// 4. 進入可疑配對審查
+// 3.5 YouTube 角色確認(FR-5/FR-6)
+// ============================================================
+function countEpMatches(rowsA, rowsB) {
+  const bKeys = new Set(rowsB.filter(r => r.epFound).map(r => r.epKey));
+  const seen = new Set();
+  let n = 0;
+  rowsA.filter(r => r.epFound).forEach(r => {
+    if (bKeys.has(r.epKey) && !seen.has(r.epKey)) { n++; seen.add(r.epKey); }
+  });
+  return n;
+}
+
+// FR-6 優先順序:檔名關鍵字建議(第3順位)>推定另一份的相反角色 > 都不確定則不預選,強制使用者指定。
+function assignDefaultYtRoles(files) {
+  const [a, b] = files;
+  const aHit = a.suggestedRole, bHit = b.suggestedRole;
+
+  if (aHit && bHit && aHit !== bHit) {
+    a.role = aHit; b.role = bHit;
+    return;
+  }
+  if (aHit && !bHit) {
+    a.role = aHit; b.role = aHit === 'video' ? 'podcast' : 'video';
+    if (!b.reason) b.reason = '未偵測到檔名關鍵字,依另一份檔案推定為相反角色';
+    return;
+  }
+  if (bHit && !aHit) {
+    b.role = bHit; a.role = bHit === 'video' ? 'podcast' : 'video';
+    if (!a.reason) a.reason = '未偵測到檔名關鍵字,依另一份檔案推定為相反角色';
+    return;
+  }
+  // 兩邊建議相同(衝突)或都沒有建議:不自動指派
+  a.role = null; b.role = null;
+  if (!a.reason) a.reason = '系統無法從檔案內容可靠判斷兩份 YouTube 資料的版本,請指定後繼續。';
+  if (!b.reason) b.reason = '系統無法從檔案內容可靠判斷兩份 YouTube 資料的版本,請指定後繼續。';
+}
+
+function enterYtRoleReview() {
+  const files = state.ytFiles;
+  assignDefaultYtRoles(files);
+  renderYtRoleSection(files);
+  document.getElementById('upload-section').style.display = 'none';
+  document.getElementById('ytrole-section').style.display = 'block';
+  window.scrollTo({top: 0, behavior: 'smooth'});
+}
+
+function renderYtRoleSection(files) {
+  const wrap = document.getElementById('ytrole-cards');
+  const matchPreview = countEpMatches(files[0].rows, files[1].rows);
+
+  wrap.innerHTML = files.map((f, idx) => {
+    const displayName = f.zipName || f.originalName;
+    const reasonText = f.reason || '尚未判斷';
+    return `
+      <div class="ytrole-card">
+        <div class="ytrole-filename" title="${escapeAttr(displayName)}">${escapeHtml(displayName)}</div>
+        <div class="ytrole-meta">${f.rows.length} 集 · 依 EP 編號可配對約 ${matchPreview} 集</div>
+        <div class="ytrole-reason">${escapeHtml(reasonText)}</div>
+        <select class="ytrole-select" data-idx="${idx}">
+          <option value="" ${!f.role ? 'selected' : ''}>請選擇…</option>
+          <option value="podcast" ${f.role === 'podcast' ? 'selected' : ''}>YouTube Podcast 版</option>
+          <option value="video" ${f.role === 'video' ? 'selected' : ''}>YouTube 影音版</option>
+          <option value="ignore" ${f.role === 'ignore' ? 'selected' : ''}>忽略此檔案</option>
+        </select>
+      </div>
+    `;
+  }).join('');
+
+  wrap.querySelectorAll('.ytrole-select').forEach(sel => {
+    sel.addEventListener('change', () => {
+      const idx = parseInt(sel.dataset.idx, 10);
+      state.ytFiles[idx].role = sel.value || null;
+      updateYtRoleStatus();
+    });
+  });
+
+  updateYtRoleStatus();
+}
+
+function updateYtRoleStatus() {
+  const files = state.ytFiles;
+  const statusEl = document.getElementById('ytrole-status');
+  const btn = document.getElementById('btn-ytrole-continue');
+  const roles = files.map(f => f.role);
+
+  if (roles.includes(null) || roles.includes(undefined)) {
+    statusEl.textContent = '請為兩份檔案分別選擇角色(或忽略)後繼續。';
+    btn.disabled = true;
+    return;
+  }
+  const active = roles.filter(r => r !== 'ignore');
+  if (active.length === 2 && active[0] === active[1]) {
+    statusEl.textContent = '兩份檔案不能指定成相同角色,請重新選擇。';
+    btn.disabled = true;
+    return;
+  }
+  statusEl.textContent = '';
+  btn.disabled = false;
+}
+
+document.getElementById('btn-ytrole-swap').addEventListener('click', () => {
+  const files = state.ytFiles;
+  if (files.length !== 2) return;
+  const tmp = files[0].role;
+  files[0].role = files[1].role;
+  files[1].role = tmp;
+  renderYtRoleSection(files);
+});
+
+document.getElementById('btn-ytrole-continue').addEventListener('click', () => {
+  resolveYtSources();
+  document.getElementById('ytrole-section').style.display = 'none';
+  enterFuzzyReview();
+});
+document.getElementById('btn-ytrole-back').addEventListener('click', () => {
+  document.getElementById('ytrole-section').style.display = 'none';
+  document.getElementById('upload-section').style.display = 'block';
+  window.scrollTo({top: 0, behavior: 'smooth'});
+});
+
+// ============================================================
+// 4. YouTube 跨版本(Podcast 版 ↔ 影音版)EP 編號精準配對(FR-8 最強訊號)
+// ============================================================
+// 只處理「雙方 EP 都唯一」的高信心配對。EP 缺席／重複／對方找不到唯一對應,
+// 一律留下來變成單一欄位的「孤兒」項目,交給下面泛化過的 findFuzzyPairs
+// (已擴充成同時認得 apple/spotify/youtubePodcast/youtubeVideo 四種孤兒)
+// 用標題相似度配對——這樣就不需要另外寫一套跨版本比對邏輯,也天然支援
+// 「沒有 EP 編號」或「EP 對不上但標題像」的節目,不是只為特定節目寫死。
+function matchYtByEpisodeNumber(podcastRows, videoRows) {
+  function buildEpMap(rows) {
+    const map = new Map();
+    rows.forEach(r => {
+      if (!r.epFound) return;
+      if (!map.has(r.epKey)) map.set(r.epKey, []);
+      map.get(r.epKey).push(r);
+    });
+    return map;
+  }
+  const pEpMap = buildEpMap(podcastRows);
+  const vEpMap = buildEpMap(videoRows);
+  const usedP = new Set();
+  const usedV = new Set();
+  const matched = [];
+
+  podcastRows.forEach(p => {
+    if (!p.epFound) return;
+    if (pEpMap.get(p.epKey).length > 1) return; // 本檔重複 EP,不能靠 EP 挑一支(FR-9)
+    const vCands = vEpMap.get(p.epKey) || [];
+    if (vCands.length === 1) {
+      matched.push({ p, v: vCands[0] });
+      usedP.add(p); usedV.add(vCands[0]);
+    }
+  });
+
+  return {
+    matched,
+    remainP: podcastRows.filter(p => !usedP.has(p)),
+    remainV: videoRows.filter(v => !usedV.has(v)),
+  };
+}
+
+function makeYtCombinedItem(podcastRow, videoRow, status, confidence) {
+  const title = podcastRow ? podcastRow.title : videoRow.title;
+  const releaseDate = podcastRow ? podcastRow.releaseDate : videoRow.releaseDate;
+  const item = {
+    title,
+    releaseDate,
+    youtubePodcast: podcastRow ? podcastRow.plays : null,
+    youtubeVideo: videoRow ? videoRow.plays : null,
+    videoMatchStatus: status,
+    videoMatchConfidence: confidence,
+  };
+  if (podcastRow && videoRow && podcastRow.title !== videoRow.title) {
+    item.ytVideoOriginalTitle = videoRow.title;
+  }
+  return item;
+}
+
+// ============================================================
+// 5. 進入可疑配對審查(跨平台 + 跨版本共用同一套 UI)
 // ============================================================
 function enterFuzzyReview() {
-  // 如果目前選「從頭至今」,此時資料已載入,重算一次最早上架日
   const sel = document.getElementById('period-select');
-  if (sel && sel.value === 'all') {
-    applyPeriodSelect();
-  }
+  if (sel && sel.value === 'all') applyPeriodSelect();
 
   const shortsThreshold = parseInt(document.getElementById('shorts-threshold').value) || 180;
   const dateFrom = parseDate(document.getElementById('date-from').value);
   const dateTo = parseDate(document.getElementById('date-to').value);
-  if (dateTo) dateTo.setHours(23, 59, 59, 999); // 涵蓋整天
+  if (dateTo) dateTo.setHours(23, 59, 59, 999);
 
-  // 過濾期間
   function inRange(item) {
     const d = parseDate(item.releaseDate);
     if (!d) return true;
@@ -424,17 +740,30 @@ function enterFuzzyReview() {
 
   const apple = (state.apple || []).filter(inRange);
   const spotify = (state.spotify || []).filter(inRange);
-  let yt = (state.yt || []).filter(inRange).filter(r => r.duration >= shortsThreshold);
 
-  // 第一輪:key 比對合併
-  const merged = mergeFirstPass(apple, spotify, yt);
+  // Shorts 門檻套用到 Podcast 版跟影音版各自的原始資料(FR-17),並記下被排除筆數。
+  const rawPodcast = (state.ytPodcastRows || []).filter(inRange);
+  const rawVideo = (state.ytVideoRows || []).filter(inRange);
+  const podcastKept = rawPodcast.filter(r => r.duration >= shortsThreshold);
+  const videoKept = rawVideo.filter(r => r.duration >= shortsThreshold);
+  state.excludedShortsCount = (rawPodcast.length - podcastKept.length) + (rawVideo.length - videoKept.length);
 
-  // 第二輪:找出可疑配對(不直接合併,而是列出讓使用者確認)
+  let ytCombined;
+  if (state.hasVideoSource) {
+    const { matched, remainP, remainV } = matchYtByEpisodeNumber(podcastKept, videoKept);
+    ytCombined = [];
+    matched.forEach(({ p, v }) => ytCombined.push(makeYtCombinedItem(p, v, 'matched_auto', 1)));
+    remainP.forEach(p => ytCombined.push(makeYtCombinedItem(p, null, 'unmatched', null)));
+    remainV.forEach(v => ytCombined.push(makeYtCombinedItem(null, v, 'unmatched', null)));
+  } else {
+    ytCombined = podcastKept.map(p => makeYtCombinedItem(p, null, null, null));
+  }
+
+  const merged = mergeFirstPass(apple, spotify, ytCombined);
   const fuzzyPairs = findFuzzyPairs(merged);
 
   staged = { merged, fuzzyPairs, dateFrom, dateTo };
 
-  // 如果沒有可疑配對,跳過這步直接到孤兒
   if (fuzzyPairs.length === 0) {
     enterOrphanReview();
     return;
@@ -443,41 +772,48 @@ function enterFuzzyReview() {
   renderFuzzyTable(fuzzyPairs);
 
   document.getElementById('upload-section').style.display = 'none';
+  document.getElementById('ytrole-section').style.display = 'none';
   document.getElementById('fuzzy-section').style.display = 'block';
   window.scrollTo({top: 0, behavior: 'smooth'});
 }
 
 function renderFuzzyTable(pairs) {
-  // 依相似度降序排列
   pairs.sort((a, b) => b.sim - a.sim);
+  const SINGLE_PLATFORMS = ['apple', 'spotify', 'youtubePodcast', 'youtubeVideo'];
+  const activeOf = e => SINGLE_PLATFORMS.filter(pl => e[pl] !== null);
+  const isYtOnly = plats => plats.length === 1 && (plats[0] === 'youtubePodcast' || plats[0] === 'youtubeVideo');
 
   const tbody = document.getElementById('fuzzy-tbody');
   tbody.innerHTML = pairs.map((p, i) => {
-    // p.target:孤兒項目(只有 YT 的) / p.match:多平台項目(Apple/Spotify)
-    // 但也可能反過來,要區分顯示
-    const targetIsYT = p.target.yt !== null && p.target.apple === null && p.target.spotify === null;
-    const matchIsYT = p.match.yt !== null && p.match.apple === null && p.match.spotify === null;
+    const targetPlatforms = activeOf(p.target);
+    const matchPlatforms = activeOf(p.match);
+    const targetIsYtOnly = isYtOnly(targetPlatforms);
+    const matchIsYtOnly = isYtOnly(matchPlatforms);
 
     let leftTitle, rightTitle;
-    if (targetIsYT) {
-      leftTitle = p.match.title;
-      rightTitle = p.target.title;
-    } else if (matchIsYT) {
-      leftTitle = p.target.title;
-      rightTitle = p.match.title;
+    if (targetIsYtOnly && matchIsYtOnly) {
+      const targetIsPodcast = targetPlatforms[0] === 'youtubePodcast';
+      leftTitle = targetIsPodcast ? p.target.title : p.match.title;
+      rightTitle = targetIsPodcast ? p.match.title : p.target.title;
+    } else if (targetIsYtOnly) {
+      leftTitle = p.match.title; rightTitle = p.target.title;
+    } else if (matchIsYtOnly) {
+      leftTitle = p.target.title; rightTitle = p.match.title;
     } else {
-      leftTitle = p.target.title;
-      rightTitle = p.match.title;
+      leftTitle = p.target.title; rightTitle = p.match.title;
     }
 
     const dateDiff = dateDiffDays(p.target.dateObj, p.match.dateObj);
+    const ambiguousTag = p.ambiguous
+      ? '<span class="tag" style="background:rgba(244,226,133,0.6);color:#7a5d00;border:none;margin-left:6px;">候選相近,請確認</span>'
+      : '';
 
     return `
       <tr data-fuzzy-idx="${i}">
-        <td><input type="checkbox" class="fuzzy-cb" data-idx="${i}" checked></td>
-        <td class="title-cell">${escapeHtml(leftTitle)}</td>
+        <td><input type="checkbox" class="fuzzy-cb" data-idx="${i}" ${p.defaultChecked !== false ? 'checked' : ''}></td>
+        <td class="title-cell">${escapeHtml(leftTitle)}${ambiguousTag}</td>
         <td class="title-cell">${escapeHtml(rightTitle)}</td>
-        <td class="num">${dateDiff === 0 ? '同天' : dateDiff + ' 天'}</td>
+        <td class="num">${dateDiff === 0 ? '同天' : (isFinite(dateDiff) ? dateDiff + ' 天' : '—')}</td>
         <td class="num"><strong>${(p.sim * 100).toFixed(0)}%</strong></td>
       </tr>
     `;
@@ -508,55 +844,49 @@ function updateFuzzyCounter() {
 }
 
 // ============================================================
-// 5. 進入孤兒審查
+// 6. 進入孤兒審查
 // ============================================================
+const YT_ALL_PLATFORMS = ['apple', 'spotify', 'youtubePodcast', 'youtubeVideo'];
+
 function enterOrphanReview() {
-  // 套用使用者選擇的可疑配對
   const approvedPairs = [];
   document.querySelectorAll('.fuzzy-cb:checked').forEach(cb => {
     const idx = parseInt(cb.dataset.idx);
     if (!isNaN(idx)) approvedPairs.push(staged.fuzzyPairs[idx]);
   });
 
-  // 套用配對:把孤兒合併到主項目
   const mergedKeys = new Set();
   approvedPairs.forEach(p => {
-    // p.target 是孤兒(只有一個平台),p.match 是要合併進去的對象
-    // 把孤兒的平台值加到 match 上
-    const targetPlatform = ['apple', 'spotify', 'yt'].find(pl => p.target[pl] !== null);
+    const targetPlatform = YT_ALL_PLATFORMS.find(pl => p.target[pl] !== null);
     if (targetPlatform && p.match[targetPlatform] === null) {
       p.match[targetPlatform] = p.target[targetPlatform];
       p.match._fuzzyMatched = true;
-      // 記錄被合併的 YouTube 原標題
-      if (targetPlatform === 'yt') {
-        p.match._ytOriginalTitle = p.target.title;
-      } else if (p.match.title !== p.target.title) {
-        // 反向:match 是 YT,target 是 apple/spotify
-        // 那 match 標題就是 YT 原標題,需要被取代
-        if (p.match.yt !== null && p.match.apple === null && p.match.spotify === null) {
-          // 但這代表 match 才是孤兒... 應該不會走到這裡,因為我們已經設定 match 是多平台項目
+      if (targetPlatform === 'youtubeVideo') {
+        if (p.match.title !== p.target.title) p.match._ytVideoOriginalTitle = p.target.title;
+      } else if (targetPlatform === 'youtubePodcast') {
+        // 併入的是 Podcast 版孤兒,原本項目是以影音版標題建立的:改用 Podcast 標題當主標題。
+        if (p.match.title !== p.target.title) {
+          p.match._ytVideoOriginalTitle = p.match.title;
+          p.match.title = p.target.title;
         }
+      } else if (targetPlatform === 'apple' || targetPlatform === 'spotify') {
+        p.match._ytOriginalTitle = p.match._ytOriginalTitle || null;
       }
       mergedKeys.add(p.target._key);
     }
   });
 
-  // 過濾掉已被合併的孤兒
   staged.merged = staged.merged.filter(d => !mergedKeys.has(d._key));
 
-  // v12:記下使用者確認過的配對(_key 是由標題決定的,跨資料集穩定),
-  // 讓「開播至今單集平均」等全域統計能把這些集數視為完整,不會誤判成缺平台。
   state.approvedFuzzy = approvedPairs.map(p => {
-    const platform = ['apple', 'spotify', 'yt'].find(pl => p.target[pl] !== null);
+    const platform = YT_ALL_PLATFORMS.find(pl => p.target[pl] !== null);
     return { targetKey: p.target._key, matchKey: p.match._key, platform };
   }).filter(r => r.platform);
 
-  // 算 total
   staged.merged.forEach(d => {
-    d.total = (d.apple || 0) + (d.spotify || 0) + (d.yt || 0);
+    d.total = (d.apple || 0) + (d.spotify || 0) + (d.youtubePodcast || 0) + (d.youtubeVideo || 0);
   });
 
-  // 排序
   staged.merged.sort((a, b) => {
     if (!a.dateObj && !b.dateObj) return 0;
     if (!a.dateObj) return 1;
@@ -564,9 +894,8 @@ function enterOrphanReview() {
     return b.dateObj - a.dateObj;
   });
 
-  // 找出孤兒(只在單一平台有資料)
   const orphans = staged.merged.filter(d => {
-    return [d.apple, d.spotify, d.yt].filter(v => v !== null).length === 1;
+    return [d.apple, d.spotify, d.youtubePodcast, d.youtubeVideo].filter(v => v !== null).length === 1;
   });
 
   staged.orphans = orphans;
@@ -590,7 +919,8 @@ function renderOrphanTable(orphans) {
     let platform, pillClass, playValue;
     if (d.apple !== null) { platform = 'Apple'; pillClass = 'apple'; playValue = d.apple; }
     else if (d.spotify !== null) { platform = 'Spotify'; pillClass = 'spotify'; playValue = d.spotify; }
-    else { platform = 'YouTube'; pillClass = 'yt'; playValue = d.yt; }
+    else if (d.youtubePodcast !== null) { platform = 'YouTube Podcast 版'; pillClass = 'yt'; playValue = d.youtubePodcast; }
+    else { platform = 'YouTube 影音版'; pillClass = 'yt'; playValue = d.youtubeVideo; }
 
     return `
       <tr>
@@ -640,6 +970,7 @@ function showReport() {
   const showName = document.getElementById('show-name').value.trim();
   renderReport(showName, state.merged);
   document.getElementById('upload-section').style.display = 'none';
+  document.getElementById('ytrole-section').style.display = 'none';
   document.getElementById('fuzzy-section').style.display = 'none';
   document.getElementById('orphan-section').style.display = 'none';
   document.getElementById('report').classList.add('active');
@@ -647,7 +978,7 @@ function showReport() {
 }
 
 // ============================================================
-// 6. 標題正規化與比對工具
+// 7. 標題正規化與比對工具
 // ============================================================
 function normalizeTitle(s) {
   if (!s) return '';
@@ -657,7 +988,7 @@ function normalizeTitle(s) {
     .replace(/[【】\[\]『』「」]/g, '')
     .replace(/[!?。,、:;!?,.:;]/g, '')
     .replace(/\d{4}[.\-\/]\d{1,2}[.\-\/]\d{1,2}/g, '')
-    .replace(/EP\d+/gi, '')
+    .replace(EP_STRIP_PATTERN, '')
     .replace(/[#＃][^\s|]+/g, '')
     .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '')
     .toLowerCase()
@@ -674,9 +1005,9 @@ function titleTokens(s) {
   (norm.match(/\d{3,5}[a-z]?/gi) || []).forEach(t => tokens.add(t.toLowerCase()));
   for (let i = 0; i < norm.length - 1; i++) {
     const c = norm[i];
-    if (/[\u4e00-\u9fa5]/.test(c)) {
+    if (/[一-龥]/.test(c)) {
       const seg2 = norm.slice(i, i+2);
-      if (/^[\u4e00-\u9fa5]{2}$/.test(seg2)) tokens.add(seg2);
+      if (/^[一-龥]{2}$/.test(seg2)) tokens.add(seg2);
     }
   }
   (norm.match(/[a-z]{3,}/gi) || []).forEach(t => tokens.add(t.toLowerCase()));
@@ -714,8 +1045,6 @@ function num(n) {
   return n.toLocaleString('zh-TW');
 }
 
-// 用本地時區把日期格式化成 YYYY-MM-DD。
-// 不能用 toISOString(),它會轉成 UTC,台灣 UTC+8 在半夜~早上 8 點之間會少一天。
 function localDateStr(d = new Date()) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -734,8 +1063,10 @@ function escapeHtml(s) {
 function escapeAttr(s) { return String(s || '').replace(/"/g, '&quot;'); }
 
 // ============================================================
-// 7. 第一輪合併:key 比對
+// 8. 第一輪合併:key 比對
 // ============================================================
+// yt 參數是已經做過跨版本配對的組合列(每列可能同時有 youtubePodcast/youtubeVideo,
+// 或只有其中一個),不是原始平台資料。
 function mergeFirstPass(apple, spotify, yt) {
   [apple, spotify, yt].forEach(arr => arr.forEach(item => {
     item.tokens = titleTokens(item.title);
@@ -754,7 +1085,7 @@ function mergeFirstPass(apple, spotify, yt) {
           title: item.title,
           releaseDate: item.releaseDate,
           dateObj: item.dateObj,
-          apple: null, spotify: null, yt: null,
+          apple: null, spotify: null, youtubePodcast: null, youtubeVideo: null,
           tokens: item.tokens,
         });
       }
@@ -773,53 +1104,81 @@ function mergeFirstPass(apple, spotify, yt) {
 
   addByKey(apple, 'apple');
   addByKey(spotify, 'spotify');
-  addByKey(yt, 'yt');
+
+  // YouTube(已合併 Podcast 版＋影音版,或單一來源)一次要寫入兩個欄位,
+  // 不是單一 plays 數字,所以用專門的合併邏輯,不套用泛用的 addByKey。
+  yt.forEach(item => {
+    const key = titleKey(item.title);
+    if (!key) return;
+    if (!map.has(key)) {
+      map.set(key, {
+        _key: key,
+        title: item.title,
+        releaseDate: item.releaseDate,
+        dateObj: item.dateObj,
+        apple: null, spotify: null, youtubePodcast: null, youtubeVideo: null,
+        tokens: item.tokens,
+      });
+    }
+    const entry = map.get(key);
+    entry.youtubePodcast = item.youtubePodcast;
+    entry.youtubeVideo = item.youtubeVideo;
+    if (item.ytVideoOriginalTitle) entry._ytVideoOriginalTitle = item.ytVideoOriginalTitle;
+  });
 
   return Array.from(map.values());
 }
 
 // ============================================================
-// 8. 第二輪:找出可疑配對(不合併)
+// 9. 第二輪:找出可疑配對(不合併,列出讓使用者確認)
 // ============================================================
+// 泛化成同時處理「跨平台孤兒」(apple/spotify vs YouTube)與「跨版本孤兒」
+// (YouTube Podcast 版 vs 影音版)。兩者用同一套相似度演算法,差別只在日期視窗:
+// 跨平台維持原本 3 天限制;兩邊都是 YouTube 孤兒時放寬(影音版可能晚幾個月上架)。
 function findFuzzyPairs(merged) {
-  const DATE_WINDOW = 3;
+  const CROSS_PLATFORM_DATE_WINDOW = 3;
   const SIM_THRESHOLD = 0.25;
+  const AMBIGUOUS_MARGIN = 0.08;
   const pairs = [];
   const usedKeys = new Set();
 
-  function isOrphan(e) {
-    return [e.apple, e.spotify, e.yt].filter(v => v !== null).length === 1;
-  }
-  function getPlatform(e) {
-    if (e.apple !== null) return 'apple';
-    if (e.spotify !== null) return 'spotify';
-    return 'yt';
-  }
+  const SINGLE_PLATFORMS = ['apple', 'spotify', 'youtubePodcast', 'youtubeVideo'];
+  function activePlatforms(e) { return SINGLE_PLATFORMS.filter(p => e[p] !== null); }
+  function isOrphan(e) { return activePlatforms(e).length === 1; }
+  function getPlatform(e) { return activePlatforms(e)[0]; }
+  function isYtPlatform(p) { return p === 'youtubePodcast' || p === 'youtubeVideo'; }
 
   for (let i = 0; i < merged.length; i++) {
     const entryA = merged[i];
     if (usedKeys.has(entryA._key) || !isOrphan(entryA)) continue;
     const pA = getPlatform(entryA);
+    const aIsYt = isYtPlatform(pA);
 
-    let best = null;
-    let bestSim = SIM_THRESHOLD;
+    let best = null, bestSim = SIM_THRESHOLD, second = null;
 
     for (let j = 0; j < merged.length; j++) {
       if (i === j) continue;
       const entryB = merged[j];
       if (usedKeys.has(entryB._key)) continue;
-      if (entryB[pA] !== null) continue; // 對方必須缺孤兒的平台
-      if (dateDiffDays(entryA.dateObj, entryB.dateObj) > DATE_WINDOW) continue;
+      if (entryB[pA] !== null) continue; // 對方必須缺孤兒的那個欄位
+
+      const bIsOrphanYt = isOrphan(entryB) && isYtPlatform(getPlatform(entryB));
+      const bothYt = aIsYt && bIsOrphanYt;
+      if (!bothYt && dateDiffDays(entryA.dateObj, entryB.dateObj) > CROSS_PLATFORM_DATE_WINDOW) continue;
 
       const sim = jaccardSimilarity(entryA.tokens, entryB.tokens);
       if (sim > bestSim) {
-        bestSim = sim;
+        second = best ? { sim: bestSim } : null;
         best = entryB;
+        bestSim = sim;
+      } else if (sim > SIM_THRESHOLD && (!second || sim > second.sim)) {
+        second = { sim };
       }
     }
 
     if (best) {
-      pairs.push({ target: entryA, match: best, sim: bestSim });
+      const ambiguous = aIsYt && second && (bestSim - second.sim) < AMBIGUOUS_MARGIN;
+      pairs.push({ target: entryA, match: best, sim: bestSim, ambiguous: !!ambiguous, defaultChecked: !ambiguous });
       usedKeys.add(entryA._key);
       usedKeys.add(best._key);
     }
@@ -829,14 +1188,13 @@ function findFuzzyPairs(merged) {
 }
 
 // ============================================================
-// 9. 渲染報表
+// 10. 渲染報表
 // ============================================================
 function renderReport(showName, data) {
   document.getElementById('report-title').textContent = showName
     ? `數據摘要：${showName}`
     : '數據摘要';
 
-  // 製表人(選填,有填才顯示),顯示在右上 meta 區
   const producer = document.getElementById('producer-name').value.trim();
   const producerLine = document.getElementById('report-producer-line');
   if (producer) {
@@ -846,7 +1204,6 @@ function renderReport(showName, data) {
     producerLine.style.display = 'none';
   }
 
-  // 日期範圍:用設定的區間,不是資料的最大最小。標籤(分析區間)已在 HTML,這裡只填值。
   const dateFrom = parseDate(document.getElementById('date-from').value);
   const dateTo = parseDate(document.getElementById('date-to').value);
   if (dateFrom && dateTo) {
@@ -856,34 +1213,34 @@ function renderReport(showName, data) {
     document.getElementById('report-date-range').textContent = '全部集數';
   }
 
-  // === 期間相關(用篩選後的 data)===
   const periodPlays = data.reduce((s, d) => s + d.total, 0);
   const episodes = data.length;
 
-  // === 不受期間影響的(用全部資料重算)===
-  // 把全部集數(不過期間篩選)合併,算開播至今與上個月
   const shortsThreshold = parseInt(document.getElementById('shorts-threshold').value) || 180;
   const allApple = state.apple || [];
   const allSpotify = state.spotify || [];
-  const allYt = (state.yt || []).filter(r => r.duration >= shortsThreshold);
-  const allMerged = mergeFirstPass(allApple, allSpotify, allYt);
+  const allPodcastRaw = (state.ytPodcastRows || []).filter(r => r.duration >= shortsThreshold);
+  const allVideoRaw = (state.ytVideoRows || []).filter(r => r.duration >= shortsThreshold);
 
-  // mergeFirstPass 回傳的物件只有 apple/spotify/yt 三個平台欄位,沒有 total
-  // (total 是主流程在別處才補算的),所以這裡要自己現算,不能直接讀 d.total,
-  // 否則會是 undefined 累加成 NaN,畫面顯示「非數值」。
-  const rowTotal = d => (d.apple || 0) + (d.spotify || 0) + (d.yt || 0);
+  let allYtCombined;
+  if (state.hasVideoSource) {
+    const { matched, remainP, remainV } = matchYtByEpisodeNumber(allPodcastRaw, allVideoRaw);
+    allYtCombined = [];
+    matched.forEach(({ p, v }) => allYtCombined.push(makeYtCombinedItem(p, v, 'matched_auto', 1)));
+    remainP.forEach(p => allYtCombined.push(makeYtCombinedItem(p, null, 'unmatched', null)));
+    remainV.forEach(v => allYtCombined.push(makeYtCombinedItem(null, v, 'unmatched', null)));
+  } else {
+    allYtCombined = allPodcastRaw.map(p => makeYtCombinedItem(p, null, null, null));
+  }
+  const allMerged = mergeFirstPass(allApple, allSpotify, allYtCombined);
 
-  // 開播至今:全部集數的三平台總和
+  const rowTotal = d => (d.apple || 0) + (d.spotify || 0) + (d.youtubePodcast || 0) + (d.youtubeVideo || 0);
+
   const allTimePlays = allMerged.reduce((s, d) => s + rowTotal(d), 0);
 
-  // === 開播至今單集平均(v12)===
-  // 基準只計入「各上傳平台皆有數據」的集數:例如這次上傳 Apple+Spotify+YouTube,
-  // 就只算三平台都有數字的集數;缺任一平台(如 YouTube 沒對到、Reels)的集數不進分母也不進分子。
-  // 這是為了避免缺漏平台的集數把平均拉低,造成不公平比較。
-  //
-  // 注意:allMerged 是第一輪合併,沒經過可疑配對審查,所以先把使用者確認過的配對
-  // 重新套上(用 _key 對回來),否則 YouTube 標題不同的集數會被誤判成「缺 YouTube」。
-  // 限制:分析區間外的集數沒被審查過,若它的 YouTube 標題不同,仍會被排除在平均之外。
+  // 開播至今單集平均(v12):基準只計入「本次上傳的所有來源都有數據」的集數。
+  // approvedFuzzy 記錄使用者確認過的配對(_key 跨資料集穩定),重套一次避免
+  // 標題不同的集數被誤判成「缺資料」。
   const byKey = new Map(allMerged.map(d => [d._key, d]));
   const absorbedKeys = new Set();
   (state.approvedFuzzy || []).forEach(r => {
@@ -896,7 +1253,10 @@ function renderReport(showName, data) {
   });
   const allMergedReviewed = allMerged.filter(d => !absorbedKeys.has(d._key));
 
-  const uploadedPlatforms = ['apple', 'spotify', 'yt'].filter(p => state[p] && state[p].length > 0);
+  const uploadedPlatforms = ['apple', 'spotify'].filter(p => state[p] && state[p].length > 0);
+  if (state.ytPodcastRows && state.ytPodcastRows.length > 0) uploadedPlatforms.push('youtubePodcast');
+  if (state.hasVideoSource && state.ytVideoRows && state.ytVideoRows.length > 0) uploadedPlatforms.push('youtubeVideo');
+
   const completeRows = allMergedReviewed.filter(d => uploadedPlatforms.every(p => d[p] !== null));
   state.allTimeAvg = completeRows.length > 0
     ? Math.round(completeRows.reduce((s, d) => s + rowTotal(d), 0) / completeRows.length)
@@ -904,19 +1264,15 @@ function renderReport(showName, data) {
   state.allTimeAvgCount = completeRows.length;
   state.uploadedPlatforms = uploadedPlatforms;
 
-  // === 開播至今播放排行榜 TOP 10(v12,不受分析區間影響)===
   state.allTimeTop10 = [...allMergedReviewed]
     .sort((a, b) => rowTotal(b) - rowTotal(a))
     .slice(0, 10)
-    .map(d => ({ title: d.title, apple: d.apple, spotify: d.spotify, yt: d.yt }));
+    .map(d => ({ title: d.title, apple: d.apple, spotify: d.spotify, youtubePodcast: d.youtubePodcast, youtubeVideo: d.youtubeVideo }));
 
-  // 上個月:上個月 1 號 ~ 月底「上架」的集數總和
   const now = new Date();
   const lastMonthFirst = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   const lastMonthLast = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
   const lastMonthLabel = `${lastMonthFirst.getFullYear()}/${String(lastMonthFirst.getMonth() + 1).padStart(2, '0')}`;
-  // 注意:要用 allMergedReviewed(已重套配對並剔除被吸收的孤兒列),
-  // 用 allMerged 會把「值已被吸收進主列的孤兒列」再加一次,重複計算。
   const lastMonthPlays = allMergedReviewed.reduce((s, d) => {
     const dt = d.dateObj;
     if (dt && dt >= lastMonthFirst && dt <= lastMonthLast) return s + rowTotal(d);
@@ -929,13 +1285,43 @@ function renderReport(showName, data) {
   document.getElementById('sum-lastmonth-label').textContent = `${lastMonthLabel} 上架集數`;
   document.getElementById('sum-period').textContent = num(periodPlays);
 
-  // 訂閱數區
+  applyVideoSourceUI();
   renderSubscribers();
-
   renderInsights(data);
   renderMatchSummary(data);
   renderCharts(data);
   renderTable(data);
+}
+
+// FR-14:有影音版才多顯示一欄/一份說明文字,沒有影音版時維持原本三來源版面,
+// 不永久多出空欄。這裡統一切換 CSS class,表格/文案在各自 render 函式內讀這個旗標。
+function applyVideoSourceUI() {
+  const table = document.getElementById('data-table');
+  if (table) table.classList.toggle('has-video-source', !!state.hasVideoSource);
+
+  const ytHeadLabel = document.getElementById('th-yt-label');
+  if (ytHeadLabel) {
+    ytHeadLabel.innerHTML = state.hasVideoSource
+      ? 'YouTube Podcast<br>至今收聽'
+      : 'YouTube<br>至今收聽';
+  }
+  const totalHeadLabel = document.getElementById('th-total-label');
+  if (totalHeadLabel) {
+    totalHeadLabel.innerHTML = state.hasVideoSource ? '全來源<br>總計' : '全平台<br>總計';
+  }
+  const totalTip = document.getElementById('th-total-tip');
+  if (totalTip) {
+    totalTip.setAttribute('data-tip', state.hasVideoSource
+      ? 'Apple＋Spotify＋YouTube Podcast 版＋YouTube 影音版相加，參考用。各來源計算邏輯不同、同一人可能重複計算，不是精準總人次。'
+      : '三平台相加，參考用。三平台計算邏輯不同、同一人可能重複計算，不是精準總人次。');
+  }
+
+  const shortsNote = document.getElementById('shorts-excluded-note');
+  if (shortsNote) {
+    shortsNote.textContent = state.excludedShortsCount
+      ? `本次已排除 ${state.excludedShortsCount} 支低於門檻的短片(Shorts)`
+      : '';
+  }
 }
 
 function renderSubscribers() {
@@ -974,7 +1360,9 @@ function renderInsights(data) {
 
   const appleTotal = data.reduce((s, d) => s + (d.apple || 0), 0);
   const spotifyTotal = data.reduce((s, d) => s + (d.spotify || 0), 0);
-  const ytTotal = data.reduce((s, d) => s + (d.yt || 0), 0);
+  const ytPodcastTotal = data.reduce((s, d) => s + (d.youtubePodcast || 0), 0);
+  const ytVideoTotal = data.reduce((s, d) => s + (d.youtubeVideo || 0), 0);
+  const ytTotal = ytPodcastTotal + ytVideoTotal;
   const grand = appleTotal + spotifyTotal + ytTotal;
   const avg = data.length > 0 ? Math.round(grand / data.length) : 0;
 
@@ -986,9 +1374,9 @@ function renderInsights(data) {
   const topShare = grand > 0 ? (shares[0].val / grand) * 100 : 0;
 
   if (topShare > 50) {
-    insights.push(`<strong>流量高度集中在 ${shares[0].name}</strong>(佔 ${topShare.toFixed(1)}%)。其他兩個平台合計僅 ${(100-topShare).toFixed(1)}%,可考慮加強較弱平台的露出。`);
+    insights.push(`<strong>流量高度集中在 ${shares[0].name}</strong>(佔 ${topShare.toFixed(1)}%)。其他來源合計僅 ${(100-topShare).toFixed(1)}%,可考慮加強較弱來源的露出。`);
   } else if (topShare < 40 && grand > 0) {
-    insights.push(`<strong>三平台分布均衡</strong>,最大來源 ${shares[0].name} 也只佔 ${topShare.toFixed(1)}%。代表節目在各平台都有穩定觸及,沒有特別偏重單一平台。`);
+    insights.push(`<strong>各來源分布均衡</strong>,最大來源 ${shares[0].name} 也只佔 ${topShare.toFixed(1)}%。代表節目在各來源都有穩定觸及,沒有特別偏重單一來源。`);
   } else if (grand > 0) {
     insights.push(`主要流量來源是 <strong>${shares[0].name}</strong>(${topShare.toFixed(1)}%),其次為 ${shares[1].name}(${((shares[1].val/grand)*100).toFixed(1)}%)。`);
   }
@@ -998,10 +1386,12 @@ function renderInsights(data) {
     const platformContrib = [
       { name: 'Apple', val: top.apple || 0 },
       { name: 'Spotify', val: top.spotify || 0 },
-      { name: 'YouTube', val: top.yt || 0 },
-    ].sort((a, b) => b.val - a.val);
+      { name: state.hasVideoSource ? 'YouTube Podcast 版' : 'YouTube', val: top.youtubePodcast || 0 },
+    ];
+    if (state.hasVideoSource) platformContrib.push({ name: 'YouTube 影音版', val: top.youtubeVideo || 0 });
+    platformContrib.sort((a, b) => b.val - a.val);
     const topPct = ((platformContrib[0].val / top.total) * 100).toFixed(0);
-    insights.push(`<strong>最高單集「${escapeHtml(truncate(top.title, 30))}」</strong>達 ${num(top.total)} 次,是單集平均(${num(avg)})的 ${(top.total/avg).toFixed(1)} 倍。主要由 ${platformContrib[0].name} 貢獻(${topPct}%),建議分析該集在該平台的成功原因(標題、選題、上線時機)。`);
+    insights.push(`<strong>最高單集「${escapeHtml(truncate(top.title, 30))}」</strong>達 ${num(top.total)} 次,是單集平均(${num(avg)})的 ${(top.total/avg).toFixed(1)} 倍。主要由 ${platformContrib[0].name} 貢獻(${topPct}%),建議分析該集在該來源的成功原因(標題、選題、上線時機)。`);
   }
 
   const podcastTotal = appleTotal + spotifyTotal;
@@ -1018,21 +1408,30 @@ function renderInsights(data) {
 }
 
 function renderMatchSummary(data) {
-  const allThree = data.filter(d => d.apple !== null && d.spotify !== null && d.yt !== null).length;
+  const hasVideo = state.hasVideoSource;
+  const allComplete = data.filter(d =>
+    d.apple !== null && d.spotify !== null && d.youtubePodcast !== null && (!hasVideo || d.youtubeVideo !== null)
+  ).length;
   const apple = data.filter(d => d.apple !== null).length;
   const spotify = data.filter(d => d.spotify !== null).length;
-  const yt = data.filter(d => d.yt !== null).length;
+  const ytPodcast = data.filter(d => d.youtubePodcast !== null).length;
+  const ytVideo = data.filter(d => d.youtubeVideo !== null).length;
   const fuzzy = data.filter(d => d._fuzzyMatched).length;
 
-  document.getElementById('match-summary').innerHTML = `
-    <div class="match-stat"><span>三平台都有</span><strong>${allThree}</strong></div>
+  let html = `
+    <div class="match-stat"><span>${hasVideo ? '四來源都有' : '三平台都有'}</span><strong>${allComplete}</strong></div>
     <div class="match-stat"><span>Apple 有資料</span><strong>${apple}</strong></div>
     <div class="match-stat"><span>Spotify 有資料</span><strong>${spotify}</strong></div>
-    <div class="match-stat"><span>YouTube 有資料</span><strong>${yt}</strong></div>
+    <div class="match-stat"><span>${hasVideo ? 'YouTube Podcast 版有資料' : 'YouTube 有資料'}</span><strong>${ytPodcast}</strong></div>`;
+  if (hasVideo) {
+    html += `<div class="match-stat"><span>YouTube 影音版有資料</span><strong>${ytVideo}</strong></div>`;
+  }
+  html += `
     <div class="match-stat"><span>單集總數</span><strong>${data.length}</strong></div>
     ${fuzzy > 0 ? `<div class="match-stat"><span>後備比對成功</span><strong>${fuzzy}</strong></div>` : ''}
     <div class="match-stat"><span>開播至今單集平均</span><strong>${num(state.allTimeAvg)}</strong></div>
   `;
+  document.getElementById('match-summary').innerHTML = html;
 }
 
 // ============================================================
@@ -1045,20 +1444,32 @@ function renderCharts(data) {
   Chart.defaults.color = '#444';
   Chart.defaults.font.size = 12;
 
-  // yt 必須用六位數色碼:程式會在色碼後面接兩位透明度(如 + '20'),
-// 三位數 '#555' 接出來是 '#55520' 無效色,YouTube 圖例方塊會變黑色實心(v12 修過)。
-const PALETTE = { apple: '#c8341a', spotify: '#1d9b54', yt: '#555555' };
+  // 色碼一律六位數:程式會在色碼後面接兩位透明度(如 + '20'),
+  // 三位數會接出無效色(YouTube 圖例曾因此變黑塊,見 CLAUDE.md 地雷區)。
+  const PALETTE = { apple: '#c8341a', spotify: '#1d9b54', youtubePodcast: '#555555', youtubeVideo: '#9a9a9a' };
+  const hasVideo = state.hasVideoSource;
+
+  // 長條圖不論類目(集數)多少,粗細都固定,避免項目少時單一長條被撐得肥大
+  const BAR_THICKNESS = 26;
+
+  function buildDatasets(rows, valueOf, forBar) {
+    const ds = [
+      { label: 'Apple', data: rows.map(d => forBar ? (valueOf(d, 'apple') || 0) : valueOf(d, 'apple')), backgroundColor: PALETTE.apple, borderColor: PALETTE.apple, ...(forBar ? { maxBarThickness: BAR_THICKNESS } : { backgroundColor: PALETTE.apple + '20', tension: 0.3, spanGaps: true }) },
+      { label: 'Spotify', data: rows.map(d => forBar ? (valueOf(d, 'spotify') || 0) : valueOf(d, 'spotify')), backgroundColor: PALETTE.spotify, borderColor: PALETTE.spotify, ...(forBar ? { maxBarThickness: BAR_THICKNESS } : { backgroundColor: PALETTE.spotify + '20', tension: 0.3, spanGaps: true }) },
+      { label: hasVideo ? 'YouTube Podcast 版' : 'YouTube', data: rows.map(d => forBar ? (valueOf(d, 'youtubePodcast') || 0) : valueOf(d, 'youtubePodcast')), backgroundColor: PALETTE.youtubePodcast, borderColor: PALETTE.youtubePodcast, ...(forBar ? { maxBarThickness: BAR_THICKNESS } : { backgroundColor: PALETTE.youtubePodcast + '20', tension: 0.3, spanGaps: true }) },
+    ];
+    if (hasVideo) {
+      ds.push({ label: 'YouTube 影音版', data: rows.map(d => forBar ? (valueOf(d, 'youtubeVideo') || 0) : valueOf(d, 'youtubeVideo')), backgroundColor: PALETTE.youtubeVideo, borderColor: PALETTE.youtubeVideo, ...(forBar ? { maxBarThickness: BAR_THICKNESS } : { backgroundColor: PALETTE.youtubeVideo + '20', tension: 0.3, spanGaps: true }) });
+    }
+    return ds;
+  }
 
   const sorted = [...data].filter(d => d.dateObj).sort((a, b) => a.dateObj - b.dateObj);
   charts.trend = new Chart(document.getElementById('chart-trend'), {
     type: 'line',
     data: {
       labels: sorted.map(d => formatDate(d.dateObj)),
-      datasets: [
-        { label: 'Apple', data: sorted.map(d => d.apple), borderColor: PALETTE.apple, backgroundColor: PALETTE.apple + '20', tension: 0.3, spanGaps: true },
-        { label: 'Spotify', data: sorted.map(d => d.spotify), borderColor: PALETTE.spotify, backgroundColor: PALETTE.spotify + '20', tension: 0.3, spanGaps: true },
-        { label: 'YouTube', data: sorted.map(d => d.yt), borderColor: PALETTE.yt, backgroundColor: PALETTE.yt + '20', tension: 0.3, spanGaps: true },
-      ]
+      datasets: buildDatasets(sorted, (d, p) => d[p], false),
     },
     options: {
       responsive: true, maintainAspectRatio: false,
@@ -1092,63 +1503,46 @@ const PALETTE = { apple: '#c8341a', spotify: '#1d9b54', yt: '#555555' };
     }
   });
 
+  const barOptions = {
+    indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { position: 'top', align: 'end' } },
+    scales: {
+      x: { stacked: true, beginAtZero: true, grid: { color: '#e5dec9' } },
+      y: { stacked: true, grid: { display: false }, ticks: { font: { size: 11 }, crossAlign: 'far' } }
+    }
+  };
+
   const top10 = [...data].sort((a, b) => b.total - a.total).slice(0, 10);
   charts.ranking = new Chart(document.getElementById('chart-ranking'), {
     type: 'bar',
-    data: {
-      labels: top10.map(d => truncate(d.title, 22)),
-      datasets: [
-        { label: 'Apple', data: top10.map(d => d.apple || 0), backgroundColor: PALETTE.apple },
-        { label: 'Spotify', data: top10.map(d => d.spotify || 0), backgroundColor: PALETTE.spotify },
-        { label: 'YouTube', data: top10.map(d => d.yt || 0), backgroundColor: PALETTE.yt },
-      ]
-    },
-    options: {
-      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { position: 'top', align: 'end' } },
-      scales: {
-        x: { stacked: true, beginAtZero: true, grid: { color: '#e5dec9' } },
-        y: { stacked: true, grid: { display: false }, ticks: { font: { size: 11 }, crossAlign: 'far' } }
-      }
-    }
+    data: { labels: top10.map(d => truncate(d.title, 22)), datasets: buildDatasets(top10, (d, p) => d[p], true) },
+    options: barOptions,
   });
 
   // 開播至今播放排行榜 TOP 10(v12):用全部資料,不受分析區間影響
   const allTop10 = state.allTimeTop10 || [];
   charts.rankingAlltime = new Chart(document.getElementById('chart-ranking-alltime'), {
     type: 'bar',
-    data: {
-      labels: allTop10.map(d => truncate(d.title, 22)),
-      datasets: [
-        { label: 'Apple', data: allTop10.map(d => d.apple || 0), backgroundColor: PALETTE.apple },
-        { label: 'Spotify', data: allTop10.map(d => d.spotify || 0), backgroundColor: PALETTE.spotify },
-        { label: 'YouTube', data: allTop10.map(d => d.yt || 0), backgroundColor: PALETTE.yt },
-      ]
-    },
-    options: {
-      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { position: 'top', align: 'end' } },
-      scales: {
-        x: { stacked: true, beginAtZero: true, grid: { color: '#e5dec9' } },
-        y: { stacked: true, grid: { display: false }, ticks: { font: { size: 11 }, crossAlign: 'far' } }
-      }
-    }
+    data: { labels: allTop10.map(d => truncate(d.title, 22)), datasets: buildDatasets(allTop10, (d, p) => d[p], true) },
+    options: barOptions,
   });
 
   const appleTotal = data.reduce((s, d) => s + (d.apple || 0), 0);
   const spotifyTotal = data.reduce((s, d) => s + (d.spotify || 0), 0);
-  const ytTotal = data.reduce((s, d) => s + (d.yt || 0), 0);
-  const grand = appleTotal + spotifyTotal + ytTotal;
+  const ytPodcastTotal = data.reduce((s, d) => s + (d.youtubePodcast || 0), 0);
+  const ytVideoTotal = hasVideo ? data.reduce((s, d) => s + (d.youtubeVideo || 0), 0) : 0;
+  const grand = appleTotal + spotifyTotal + ytPodcastTotal + ytVideoTotal;
+
+  const shareLabels = ['Apple Podcast', 'Spotify', hasVideo ? 'YouTube Podcast 版' : 'YouTube'];
+  const shareData = [appleTotal, spotifyTotal, ytPodcastTotal];
+  const shareColors = [PALETTE.apple, PALETTE.spotify, PALETTE.youtubePodcast];
+  if (hasVideo) { shareLabels.push('YouTube 影音版'); shareData.push(ytVideoTotal); shareColors.push(PALETTE.youtubeVideo); }
 
   charts.share = new Chart(document.getElementById('chart-share'), {
     type: 'doughnut',
     data: {
-      labels: ['Apple Podcast', 'Spotify', 'YouTube'],
-      datasets: [{
-        data: [appleTotal, spotifyTotal, ytTotal],
-        backgroundColor: [PALETTE.apple, PALETTE.spotify, PALETTE.yt],
-        borderColor: '#f5f1ea', borderWidth: 3,
-      }]
+      labels: shareLabels,
+      datasets: [{ data: shareData, backgroundColor: shareColors, borderColor: '#f5f1ea', borderWidth: 3 }]
     },
     options: {
       responsive: true, maintainAspectRatio: false,
@@ -1182,7 +1576,7 @@ const PALETTE = { apple: '#c8341a', spotify: '#1d9b54', yt: '#555555' };
         ctx.fillText(num(grand), cx, cy + 2);
         ctx.fillStyle = '#888';
         ctx.font = '11px "Noto Sans TC", sans-serif';
-        ctx.fillText('三平台累積', cx, cy + 22);
+        ctx.fillText(hasVideo ? '四來源累積' : '三平台累積', cx, cy + 22);
         ctx.restore();
       }
     }]
@@ -1190,11 +1584,7 @@ const PALETTE = { apple: '#c8341a', spotify: '#1d9b54', yt: '#555555' };
 
   const shareLegend = document.getElementById('share-legend');
   if (shareLegend) {
-    const items = [
-      { name: 'Apple Podcast', val: appleTotal, color: PALETTE.apple },
-      { name: 'Spotify', val: spotifyTotal, color: PALETTE.spotify },
-      { name: 'YouTube', val: ytTotal, color: PALETTE.yt },
-    ];
+    const items = shareLabels.map((name, i) => ({ name, val: shareData[i], color: shareColors[i] }));
     shareLegend.innerHTML = items.map(it => {
       const pct = grand > 0 ? ((it.val / grand) * 100).toFixed(1) : 0;
       return `
@@ -1213,9 +1603,9 @@ const PALETTE = { apple: '#c8341a', spotify: '#1d9b54', yt: '#555555' };
 // 11. 表格(排序 + 搜尋)
 // ============================================================
 
-// 「收聽平均比較」欄(v12):該集全平台總計 vs 開播至今單集平均。
+// 「收聽平均比較」欄(v12):該集全部已上傳來源總計 vs 開播至今單集平均。
 // 高於平均=紅色箭頭朝上、低於=綠色箭頭朝下(台股慣例:紅漲綠跌)。
-// 缺任一上傳平台數據的集數不參與比較(顯示 —),因為它的總計天生偏低,比了不公平。
+// 缺任一已上傳來源數據的集數不參與比較(顯示 —),因為它的總計天生偏低,比了不公平。
 function cmpToAvgHtml(d) {
   const avg = state.allTimeAvg || 0;
   const platforms = state.uploadedPlatforms || [];
@@ -1228,8 +1618,8 @@ function cmpToAvgHtml(d) {
   return '<span class="cmp-avg">持平</span>';
 }
 function renderTable(allData) {
+  const hasVideo = state.hasVideoSource;
   // 套用搜尋:用空格分隔多個關鍵字,符合任一個就顯示(OR)。
-  // 例:打「鏡爆點 社會線上」會把這兩種集數一起列出來。
   let data = allData;
   if (state.searchQuery) {
     const terms = state.searchQuery.toLowerCase().split(/\s+/).filter(Boolean);
@@ -1237,13 +1627,13 @@ function renderTable(allData) {
       data = allData.filter(d => {
         const title = d.title.toLowerCase();
         const ytTitle = d._ytOriginalTitle ? d._ytOriginalTitle.toLowerCase() : '';
-        return terms.some(t => title.includes(t) || ytTitle.includes(t));
+        const ytVideoTitle = d._ytVideoOriginalTitle ? d._ytVideoOriginalTitle.toLowerCase() : '';
+        return terms.some(t => title.includes(t) || ytTitle.includes(t) || ytVideoTitle.includes(t));
       });
     }
   }
 
   // 計算「上一週」的起點:上一個完整週的週一(0:00)
-  // 標記範圍 = 上週一 ~ 今天(涵蓋上一個完整週,若有本週最新集也一起標)
   const today = new Date();
   today.setHours(23, 59, 59, 999);
   const dow = today.getDay() === 0 ? 7 : today.getDay();
@@ -1252,7 +1642,6 @@ function renderTable(allData) {
   const lastMonday = new Date(thisMonday);
   lastMonday.setDate(thisMonday.getDate() - 7);
   lastMonday.setHours(0, 0, 0, 0);
-  // 判斷某集是否在標記範圍(上週一 ~ 今天)
   function isRecentWeek(dateObj) {
     if (!dateObj) return false;
     return dateObj.getTime() >= lastMonday.getTime() && dateObj.getTime() <= today.getTime();
@@ -1265,7 +1654,8 @@ function renderTable(allData) {
       case 'date': av = a.dateObj ? a.dateObj.getTime() : 0; bv = b.dateObj ? b.dateObj.getTime() : 0; break;
       case 'apple': av = a.apple ?? -1; bv = b.apple ?? -1; break;
       case 'spotify': av = a.spotify ?? -1; bv = b.spotify ?? -1; break;
-      case 'yt': av = a.yt ?? -1; bv = b.yt ?? -1; break;
+      case 'youtubePodcast': av = a.youtubePodcast ?? -1; bv = b.youtubePodcast ?? -1; break;
+      case 'youtubeVideo': av = a.youtubeVideo ?? -1; bv = b.youtubeVideo ?? -1; break;
       case 'total': av = a.total; bv = b.total; break;
       default: av = 0; bv = 0;
     }
@@ -1277,12 +1667,15 @@ function renderTable(allData) {
     const missing = [];
     if (d.apple === null) missing.push('Apple');
     if (d.spotify === null) missing.push('Spotify');
-    if (d.yt === null) missing.push('YouTube');
+    if (d.youtubePodcast === null) missing.push(hasVideo ? 'YouTube Podcast 版' : 'YouTube');
+    if (hasVideo && d.youtubeVideo === null) missing.push('YouTube 影音版');
     let note = missing.length > 0 ? `<span class="tag missing">缺 ${missing.join('、')}</span>` : '';
     if (d._ytOriginalTitle) {
       note += `<span class="tag" style="background:rgba(244,226,133,0.5);color:#7a5d00;border:none;" title="${escapeAttr(d._ytOriginalTitle)}">YouTube 標題不同</span>`;
     }
-    // 系統標記(上)+ 製作人可編輯備註(下)。備註綁 _key,排序/搜尋都不會跑掉。
+    if (hasVideo && d._ytVideoOriginalTitle) {
+      note += `<span class="tag" style="background:rgba(244,226,133,0.5);color:#7a5d00;border:none;" title="${escapeAttr(d._ytVideoOriginalTitle)}">影音版標題不同</span>`;
+    }
     const savedNote = state.notes[d._key] || '';
     const noteCell = `
       ${note ? `<div class="note-tags">${note}</div>` : ''}
@@ -1296,10 +1689,12 @@ function renderTable(allData) {
         <td class="episode-title">
           ${escapeHtml(d.title)}
           ${d._ytOriginalTitle ? `<div style="font-size:11px;color:var(--ink-faint);margin-top:4px;font-style:italic;">YouTube:${escapeHtml(d._ytOriginalTitle)}</div>` : ''}
+          ${hasVideo && d._ytVideoOriginalTitle ? `<div style="font-size:11px;color:var(--ink-faint);margin-top:4px;font-style:italic;">影音版:${escapeHtml(d._ytVideoOriginalTitle)}</div>` : ''}
         </td>
         <td class="num platform-apple">${num(d.apple)}</td>
         <td class="num platform-spotify">${num(d.spotify)}</td>
-        <td class="num platform-yt">${num(d.yt)}</td>
+        <td class="num platform-yt">${num(d.youtubePodcast)}</td>
+        ${hasVideo ? `<td class="num platform-yt yt-video-col">${num(d.youtubeVideo)}</td>` : ''}
         <td class="num"><strong>${num(d.total)}</strong></td>
         <td class="cmp-cell">${cmpToAvgHtml(d)}</td>
         <td class="note-cell">${noteCell}</td>
@@ -1307,13 +1702,9 @@ function renderTable(allData) {
     `;
   }).join('');
 
-  // 綁定備註輸入:打字即時存進 state.notes(以 _key 為鍵)。
-  // 用 input 事件邊打邊存,重新排序或搜尋時不會掉。
   tbody.querySelectorAll('.note-input').forEach(ta => {
-    // 依內容自動長高。注意:首次渲染時欄寬可能還沒算好,scrollHeight 會偏小把框壓扁,
-    // 所以只在「有內容」時才依 scrollHeight 調高,空框一律維持 CSS 的 min-height。
     const autoGrow = () => {
-      if (!ta.value) { ta.style.height = ''; return; }  // 空:交給 CSS min-height
+      if (!ta.value) { ta.style.height = ''; return; }
       ta.style.height = 'auto';
       ta.style.height = ta.scrollHeight + 'px';
     };
@@ -1327,14 +1718,12 @@ function renderTable(allData) {
     });
   });
 
-  // 更新表頭排序視覺
   document.querySelectorAll('#data-table th.sortable').forEach(th => {
     const col = th.dataset.sort;
     th.classList.remove('sort-asc', 'sort-desc');
     if (col === state.sortBy) th.classList.add(state.sortDir === 'desc' ? 'sort-desc' : 'sort-asc');
   });
 
-  // 更新搜尋結果計數
   const countEl = document.getElementById('search-count');
   if (countEl) {
     if (state.searchQuery) {
@@ -1354,7 +1743,6 @@ document.querySelectorAll('#data-table th.sortable').forEach(th => {
   });
 });
 
-// 搜尋框
 const searchInput = document.getElementById('table-search');
 const searchWrap = searchInput?.parentElement;
 const searchClear = document.getElementById('search-clear');
@@ -1383,15 +1771,14 @@ document.getElementById('btn-export-html').addEventListener('click', exportStand
 
 async function exportStandaloneHTML() {
   if (!state.merged) return;
+  const hasVideo = state.hasVideoSource;
 
   const showName = document.getElementById('show-name').value.trim() || '節目';
   const producer = document.getElementById('producer-name').value.trim();
   const today = localDateStr();
-  // 報表產出時間:本地時區、清楚的 YYYY/MM/DD HH:MM
   const _now = new Date();
   const exportTimeStr = `${localDateStr(_now).replace(/-/g, '/')} ${String(_now.getHours()).padStart(2,'0')}:${String(_now.getMinutes()).padStart(2,'0')}`;
 
-  // 抓 Chart.js 程式碼 inline,避免 iPad/離線環境載不到
   let chartJsCode = '';
   try {
     const resp = await fetch('https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js');
@@ -1400,8 +1787,6 @@ async function exportStandaloneHTML() {
     console.warn('Chart.js fetch failed, fallback to CDN', e);
   }
 
-  // 把資料 inline
-  // 計算「上一週」標記範圍(上週一 ~ 今天),匯出時固定下來當快照
   const _today = new Date();
   _today.setHours(23, 59, 59, 999);
   const _dow = _today.getDay() === 0 ? 7 : _today.getDay();
@@ -1421,18 +1806,18 @@ async function exportStandaloneHTML() {
     dateISO: d.dateObj ? d.dateObj.toISOString() : null,
     apple: d.apple,
     spotify: d.spotify,
-    yt: d.yt,
+    youtubePodcast: d.youtubePodcast,
+    youtubeVideo: hasVideo ? d.youtubeVideo : null,
     total: d.total,
     fuzzy: !!d._fuzzyMatched,
     ytOriginalTitle: d._ytOriginalTitle || null,
+    ytVideoOriginalTitle: hasVideo ? (d._ytVideoOriginalTitle || null) : null,
     recentWeek: _isRecentWeek(d.dateObj),
-    note: (state.notes[d._key] || '').trim() || null,  // 製作人手填備註,凍結進快照
-    // v12:各上傳平台皆有數據才參與「收聽平均比較」,匯出時把判斷結果凍結下來
+    note: (state.notes[d._key] || '').trim() || null,
     complete: (state.uploadedPlatforms || []).length > 0 &&
       state.uploadedPlatforms.every(p => d[p] !== null),
   }));
 
-  // v12:開播至今單集平均 + 開播至今 TOP 10,匯出時凍結成快照
   const alltimeToEmbed = {
     avg: state.allTimeAvg || 0,
     top10: state.allTimeTop10 || [],
@@ -1454,9 +1839,6 @@ async function exportStandaloneHTML() {
   reportSection.classList.add('active');
   reportSection.style.display = 'block';
 
-  // 把可編輯的備註 textarea 凍結成靜態文字。
-  // textarea 的值不會被 cloneNode/outerHTML 帶出來,所以從 state.notes(真實來源)取值,
-  // 換成純文字 div。沒填備註的就移除,讓匯出檔乾淨。
   reportSection.querySelectorAll('.note-input').forEach(ta => {
     const key = ta.getAttribute('data-key');
     const val = (state.notes[key] || '').trim();
@@ -1544,15 +1926,17 @@ ${styleEl.outerHTML}
 const EMBEDDED_DATA = ${JSON.stringify(dataToEmbed)};
 const SUB_DATA = ${JSON.stringify(subData)};
 const ALLTIME = ${JSON.stringify(alltimeToEmbed)};
+const HAS_VIDEO = ${JSON.stringify(hasVideo)};
 
 const data = EMBEDDED_DATA.map(d => ({
   ...d,
   dateObj: d.dateISO ? new Date(d.dateISO) : null,
 }));
 
-// yt 必須用六位數色碼:程式會在色碼後面接兩位透明度(如 + '20'),
+// 色碼一律六位數:程式會在色碼後面接兩位透明度(如 + '20'),
 // 三位數 '#555' 接出來是 '#55520' 無效色,YouTube 圖例方塊會變黑色實心(v12 修過)。
-const PALETTE = { apple: '#c8341a', spotify: '#1d9b54', yt: '#555555' };
+const PALETTE = { apple: '#c8341a', spotify: '#1d9b54', youtubePodcast: '#555555', youtubeVideo: '#9a9a9a' };
+const BAR_THICKNESS = 26;
 
 function num(n) {
   if (n === null || n === undefined) return '—';
@@ -1570,7 +1954,6 @@ function escapeHtml(s) {
 }
 function escapeAttr(s) { return String(s || '').replace(/"/g, '&quot;'); }
 
-// 「收聽平均比較」欄(v12):與主程式的 cmpToAvgHtml 同邏輯,基準與 complete 旗標已凍結
 function cmpToAvgHtml(d) {
   if (!ALLTIME.avg || !d.complete) return '—';
   const diffPct = ((d.total - ALLTIME.avg) / ALLTIME.avg) * 100;
@@ -1579,7 +1962,6 @@ function cmpToAvgHtml(d) {
   return '<span class="cmp-avg">持平</span>';
 }
 
-// 設定訂閱數
 (function setSubs() {
   const wrap = document.getElementById('subscriber-display');
   if (!wrap) return;
@@ -1607,23 +1989,27 @@ Chart.defaults.font.family = "'Noto Sans TC', sans-serif";
 Chart.defaults.color = '#444';
 Chart.defaults.font.size = 12;
 
+function buildDatasets(rows, valueOf, forBar) {
+  const ds = [
+    { label: 'Apple', data: rows.map(d => forBar ? (valueOf(d, 'apple') || 0) : valueOf(d, 'apple')), backgroundColor: PALETTE.apple, borderColor: PALETTE.apple, ...(forBar ? { maxBarThickness: BAR_THICKNESS } : { backgroundColor: PALETTE.apple + '20', tension: 0.3, spanGaps: true }) },
+    { label: 'Spotify', data: rows.map(d => forBar ? (valueOf(d, 'spotify') || 0) : valueOf(d, 'spotify')), backgroundColor: PALETTE.spotify, borderColor: PALETTE.spotify, ...(forBar ? { maxBarThickness: BAR_THICKNESS } : { backgroundColor: PALETTE.spotify + '20', tension: 0.3, spanGaps: true }) },
+    { label: HAS_VIDEO ? 'YouTube Podcast 版' : 'YouTube', data: rows.map(d => forBar ? (valueOf(d, 'youtubePodcast') || 0) : valueOf(d, 'youtubePodcast')), backgroundColor: PALETTE.youtubePodcast, borderColor: PALETTE.youtubePodcast, ...(forBar ? { maxBarThickness: BAR_THICKNESS } : { backgroundColor: PALETTE.youtubePodcast + '20', tension: 0.3, spanGaps: true }) },
+  ];
+  if (HAS_VIDEO) {
+    ds.push({ label: 'YouTube 影音版', data: rows.map(d => forBar ? (valueOf(d, 'youtubeVideo') || 0) : valueOf(d, 'youtubeVideo')), backgroundColor: PALETTE.youtubeVideo, borderColor: PALETTE.youtubeVideo, ...(forBar ? { maxBarThickness: BAR_THICKNESS } : { backgroundColor: PALETTE.youtubeVideo + '20', tension: 0.3, spanGaps: true }) });
+  }
+  return ds;
+}
+
 const sorted = [...data].filter(d => d.dateObj).sort((a, b) => a.dateObj - b.dateObj);
 new Chart(document.getElementById('chart-trend'), {
   type: 'line',
-  data: {
-    labels: sorted.map(d => formatDate(d.dateObj)),
-    datasets: [
-      { label: 'Apple', data: sorted.map(d => d.apple), borderColor: PALETTE.apple, backgroundColor: PALETTE.apple + '20', tension: 0.3, spanGaps: true },
-      { label: 'Spotify', data: sorted.map(d => d.spotify), borderColor: PALETTE.spotify, backgroundColor: PALETTE.spotify + '20', tension: 0.3, spanGaps: true },
-      { label: 'YouTube', data: sorted.map(d => d.yt), borderColor: PALETTE.yt, backgroundColor: PALETTE.yt + '20', tension: 0.3, spanGaps: true },
-    ]
-  },
+  data: { labels: sorted.map(d => formatDate(d.dateObj)), datasets: buildDatasets(sorted, (d, p) => d[p], false) },
   options: {
     responsive: true, maintainAspectRatio: false,
     interaction: { mode: 'index', intersect: false },
     plugins: {
       legend: { position: 'top', align: 'end', labels: {
-          // 圖例改實心色塊,與排行榜圖一致(線圖預設是框線+半透明填色,兩張圖並列不一致)
           generateLabels(chart) {
             const items = Chart.defaults.plugins.legend.labels.generateLabels(chart);
             items.forEach(it => {
@@ -1650,63 +2036,42 @@ new Chart(document.getElementById('chart-trend'), {
   }
 });
 
+const barOptions = {
+  indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+  plugins: { legend: { position: 'top', align: 'end' } },
+  scales: {
+    x: { stacked: true, beginAtZero: true, grid: { color: '#e5dec9' } },
+    y: { stacked: true, grid: { display: false }, ticks: { font: { size: 11 }, crossAlign: 'far' } }
+  }
+};
+
 const top10 = [...data].sort((a, b) => b.total - a.total).slice(0, 10);
 new Chart(document.getElementById('chart-ranking'), {
   type: 'bar',
-  data: {
-    labels: top10.map(d => truncate(d.title, 22)),
-    datasets: [
-      { label: 'Apple', data: top10.map(d => d.apple || 0), backgroundColor: PALETTE.apple },
-      { label: 'Spotify', data: top10.map(d => d.spotify || 0), backgroundColor: PALETTE.spotify },
-      { label: 'YouTube', data: top10.map(d => d.yt || 0), backgroundColor: PALETTE.yt },
-    ]
-  },
-  options: {
-    indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-    plugins: { legend: { position: 'top', align: 'end' } },
-    scales: {
-      x: { stacked: true, beginAtZero: true, grid: { color: '#e5dec9' } },
-      y: { stacked: true, grid: { display: false }, ticks: { font: { size: 11 }, crossAlign: 'far' } }
-    }
-  }
+  data: { labels: top10.map(d => truncate(d.title, 22)), datasets: buildDatasets(top10, (d, p) => d[p], true) },
+  options: barOptions,
 });
 
-// 開播至今播放排行榜 TOP 10(v12):資料已在匯出時凍結於 ALLTIME.top10
 new Chart(document.getElementById('chart-ranking-alltime'), {
   type: 'bar',
-  data: {
-    labels: ALLTIME.top10.map(d => truncate(d.title, 22)),
-    datasets: [
-      { label: 'Apple', data: ALLTIME.top10.map(d => d.apple || 0), backgroundColor: PALETTE.apple },
-      { label: 'Spotify', data: ALLTIME.top10.map(d => d.spotify || 0), backgroundColor: PALETTE.spotify },
-      { label: 'YouTube', data: ALLTIME.top10.map(d => d.yt || 0), backgroundColor: PALETTE.yt },
-    ]
-  },
-  options: {
-    indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-    plugins: { legend: { position: 'top', align: 'end' } },
-    scales: {
-      x: { stacked: true, beginAtZero: true, grid: { color: '#e5dec9' } },
-      y: { stacked: true, grid: { display: false }, ticks: { font: { size: 11 }, crossAlign: 'far' } }
-    }
-  }
+  data: { labels: ALLTIME.top10.map(d => truncate(d.title, 22)), datasets: buildDatasets(ALLTIME.top10, (d, p) => d[p], true) },
+  options: barOptions,
 });
 
 const appleTotal = data.reduce((s, d) => s + (d.apple || 0), 0);
 const spotifyTotal = data.reduce((s, d) => s + (d.spotify || 0), 0);
-const ytTotal = data.reduce((s, d) => s + (d.yt || 0), 0);
-const grand = appleTotal + spotifyTotal + ytTotal;
+const ytPodcastTotal = data.reduce((s, d) => s + (d.youtubePodcast || 0), 0);
+const ytVideoTotal = HAS_VIDEO ? data.reduce((s, d) => s + (d.youtubeVideo || 0), 0) : 0;
+const grand = appleTotal + spotifyTotal + ytPodcastTotal + ytVideoTotal;
+
+const shareLabels = ['Apple Podcast', 'Spotify', HAS_VIDEO ? 'YouTube Podcast 版' : 'YouTube'];
+const shareData = [appleTotal, spotifyTotal, ytPodcastTotal];
+const shareColors = [PALETTE.apple, PALETTE.spotify, PALETTE.youtubePodcast];
+if (HAS_VIDEO) { shareLabels.push('YouTube 影音版'); shareData.push(ytVideoTotal); shareColors.push(PALETTE.youtubeVideo); }
 
 new Chart(document.getElementById('chart-share'), {
   type: 'doughnut',
-  data: {
-    labels: ['Apple Podcast', 'Spotify', 'YouTube'],
-    datasets: [{
-      data: [appleTotal, spotifyTotal, ytTotal],
-      backgroundColor: [PALETTE.apple, PALETTE.spotify, PALETTE.yt],
-      borderColor: '#f5f1ea', borderWidth: 3,
-    }]
-  },
+  data: { labels: shareLabels, datasets: [{ data: shareData, backgroundColor: shareColors, borderColor: '#f5f1ea', borderWidth: 3 }] },
   options: {
     responsive: true, maintainAspectRatio: false,
     plugins: {
@@ -1739,7 +2104,7 @@ new Chart(document.getElementById('chart-share'), {
       ctx.fillText(num(grand), cx, cy + 2);
       ctx.fillStyle = '#888';
       ctx.font = '11px "Noto Sans TC", sans-serif';
-      ctx.fillText('三平台累積', cx, cy + 22);
+      ctx.fillText(HAS_VIDEO ? '四來源累積' : '三平台累積', cx, cy + 22);
       ctx.restore();
     }
   }]
@@ -1747,11 +2112,7 @@ new Chart(document.getElementById('chart-share'), {
 
 const shareLegend = document.getElementById('share-legend');
 if (shareLegend) {
-  const items = [
-    { name: 'Apple Podcast', val: appleTotal, color: PALETTE.apple },
-    { name: 'Spotify', val: spotifyTotal, color: PALETTE.spotify },
-    { name: 'YouTube', val: ytTotal, color: PALETTE.yt },
-  ];
+  const items = shareLabels.map((name, i) => ({ name, val: shareData[i], color: shareColors[i] }));
   shareLegend.innerHTML = items.map(it => {
     const pct = grand > 0 ? ((it.val / grand) * 100).toFixed(1) : 0;
     return '<div class="legend-row">' +
@@ -1763,7 +2124,6 @@ if (shareLegend) {
   }).join('');
 }
 
-// 表格(排序 + 搜尋)
 const tableState = { sortBy: 'date', sortDir: 'desc', searchQuery: '' };
 
 function renderTable() {
@@ -1772,7 +2132,8 @@ function renderTable() {
     const q = tableState.searchQuery.toLowerCase();
     filtered = data.filter(d =>
       d.title.toLowerCase().includes(q) ||
-      (d.ytOriginalTitle && d.ytOriginalTitle.toLowerCase().includes(q))
+      (d.ytOriginalTitle && d.ytOriginalTitle.toLowerCase().includes(q)) ||
+      (d.ytVideoOriginalTitle && d.ytVideoOriginalTitle.toLowerCase().includes(q))
     );
   }
   const sorted = [...filtered].sort((a, b) => {
@@ -1781,7 +2142,8 @@ function renderTable() {
       case 'date': av = a.dateObj ? a.dateObj.getTime() : 0; bv = b.dateObj ? b.dateObj.getTime() : 0; break;
       case 'apple': av = a.apple ?? -1; bv = b.apple ?? -1; break;
       case 'spotify': av = a.spotify ?? -1; bv = b.spotify ?? -1; break;
-      case 'yt': av = a.yt ?? -1; bv = b.yt ?? -1; break;
+      case 'youtubePodcast': av = a.youtubePodcast ?? -1; bv = b.youtubePodcast ?? -1; break;
+      case 'youtubeVideo': av = a.youtubeVideo ?? -1; bv = b.youtubeVideo ?? -1; break;
       case 'total': av = a.total; bv = b.total; break;
       default: av = 0; bv = 0;
     }
@@ -1793,12 +2155,15 @@ function renderTable() {
     const missing = [];
     if (d.apple === null) missing.push('Apple');
     if (d.spotify === null) missing.push('Spotify');
-    if (d.yt === null) missing.push('YouTube');
+    if (d.youtubePodcast === null) missing.push(HAS_VIDEO ? 'YouTube Podcast 版' : 'YouTube');
+    if (HAS_VIDEO && d.youtubeVideo === null) missing.push('YouTube 影音版');
     let note = missing.length > 0 ? '<span class="tag missing">缺 ' + missing.join('、') + '</span>' : '';
     if (d.ytOriginalTitle) {
       note += '<span class="tag" style="background:rgba(244,226,133,0.5);color:#7a5d00;border:none;">YouTube 標題不同</span>';
     }
-    // 備註欄:系統標記(上)+ 製作人凍結備註(下)。匯出檔為靜態,備註不可再編輯。
+    if (HAS_VIDEO && d.ytVideoOriginalTitle) {
+      note += '<span class="tag" style="background:rgba(244,226,133,0.5);color:#7a5d00;border:none;">影音版標題不同</span>';
+    }
     const noteCell =
       (note ? '<div class="note-tags">' + note + '</div>' : '') +
       (d.note ? '<div class="note-frozen">' + escapeHtml(d.note) + '</div>' : '');
@@ -1806,10 +2171,12 @@ function renderTable() {
       '<td>' + formatDate(d.dateObj) + '</td>' +
       '<td class="episode-title">' + escapeHtml(d.title) +
         (d.ytOriginalTitle ? '<div style="font-size:11px;color:var(--ink-faint);margin-top:4px;font-style:italic;">YouTube:' + escapeHtml(d.ytOriginalTitle) + '</div>' : '') +
+        (HAS_VIDEO && d.ytVideoOriginalTitle ? '<div style="font-size:11px;color:var(--ink-faint);margin-top:4px;font-style:italic;">影音版:' + escapeHtml(d.ytVideoOriginalTitle) + '</div>' : '') +
       '</td>' +
       '<td class="num platform-apple">' + num(d.apple) + '</td>' +
       '<td class="num platform-spotify">' + num(d.spotify) + '</td>' +
-      '<td class="num platform-yt">' + num(d.yt) + '</td>' +
+      '<td class="num platform-yt">' + num(d.youtubePodcast) + '</td>' +
+      (HAS_VIDEO ? '<td class="num platform-yt yt-video-col">' + num(d.youtubeVideo) + '</td>' : '') +
       '<td class="num"><strong>' + num(d.total) + '</strong></td>' +
       '<td class="cmp-cell">' + cmpToAvgHtml(d) + '</td>' +
       '<td class="note-cell">' + noteCell + '</td>' +

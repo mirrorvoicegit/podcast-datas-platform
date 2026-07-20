@@ -74,7 +74,8 @@ function assertReport(r, label) {
   check(`${label}:圖例填色都是合法色碼`, badFill.length === 0, badFill.map(i => i.text + '=' + i.fill).join(', '));
   check(`${label}:開播至今 TOP10 圖有 10 筆`, r.alltimeLabels === 10, 'labels=' + r.alltimeLabels);
   check(`${label}:橫排數字有開播至今單集平均`, r.matchSummaryText.includes('開播至今單集平均'));
-  check(`${label}:表頭 8 欄、資料列 8 格`, r.headerCount === 8 && r.rowCells === 8, `th=${r.headerCount} td=${r.rowCells}`);
+  // v16 新增影音版欄(th 恆在、無影音版資料時該欄 CSS 隱藏且不產生 td),故表頭 9 欄、資料列仍 8 格
+  check(`${label}:表頭 9 欄、資料列 8 格(無影音版時)`, r.headerCount === 9 && r.rowCells === 8, `th=${r.headerCount} td=${r.rowCells}`);
   check(`${label}:比較欄有紅升也有綠降`, r.cmpUp > 0 && r.cmpDown > 0, `up=${r.cmpUp} down=${r.cmpDown}`);
   check(`${label}:缺平台的集數顯示 —`, r.cmpDash > 0, `dash=${r.cmpDash}`);
 }
