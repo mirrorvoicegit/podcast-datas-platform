@@ -196,16 +196,6 @@
   }
   .badge.ready { background: rgba(29,155,84,0.16); color: #14713a; }
   .badge.beta { background: rgba(255,209,102,0.35); color: #8a6100; }
-  .badge.dev { background: rgba(138,132,120,0.18); color: var(--ink-faint); }
-
-  /* 開發中卡片:非連結,弱化互動樣式 */
-  .tool-card.tool-3 {
-    cursor: default;
-    opacity: 0.72;
-  }
-  .tool-card.tool-3:hover { transform: none; box-shadow: 0 16px 34px -22px rgba(40,28,16,0.22); }
-  .tool-card.tool-3 .tool-cta { background: var(--ink-faint); }
-
   /* 附註區 */
   .notes {
     background: var(--glass);
@@ -339,39 +329,6 @@
         <span class="arrow">→</span>
       </div>
     </a>
-
-    <div class="tool-card tool-3">
-      <div class="tool-name">
-        節目數據總覽
-        <span class="badge dev">開發中</span>
-      </div>
-      <div class="tool-desc">
-        整合各節目數據，提供主管跨節目、跨時間範圍的經營報表。
-      </div>
-
-      <div class="tool-meta">
-        <div class="tool-meta-row">
-          <span class="label">資料來源</span>
-          <span>Google 試算表</span>
-        </div>
-        <div class="tool-meta-row">
-          <span class="label">用途</span>
-          <span>各類會議報表用途</span>
-        </div>
-        <div class="tool-meta-row">
-          <span class="label">使用對象</span>
-          <span>主管群</span>
-        </div>
-        <div class="tool-meta-row">
-          <span class="label">版本</span>
-          <span>開發中</span>
-        </div>
-      </div>
-
-      <div class="tool-cta">
-        <span>敬請期待</span>
-      </div>
-    </div>
 
     <a href="https://mirrorvoicegit.github.io/podcast-awards/" class="tool-card tool-4" target="_blank" rel="noopener">
       <div class="tool-name">
