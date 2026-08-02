@@ -1503,20 +1503,26 @@ function renderCharts(data) {
     }
   });
 
-  const barOptions = {
-    indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-    plugins: { legend: { position: 'top', align: 'end' } },
-    scales: {
-      x: { stacked: true, beginAtZero: true, grid: { color: '#e5dec9' } },
-      y: { stacked: true, grid: { display: false }, ticks: { font: { size: 11 }, crossAlign: 'far' } }
-    }
-  };
+  // 標題被 truncate 成短版顯示在 y 軸,hover 長條時 tooltip 標題顯示完整原始標題(修正:標題截斷看不到完整內容)
+  function makeBarOptions(rows) {
+    return {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'top', align: 'end' },
+        tooltip: { callbacks: { title: (items) => rows[items[0].dataIndex].title } }
+      },
+      scales: {
+        x: { stacked: true, beginAtZero: true, grid: { color: '#e5dec9' } },
+        y: { stacked: true, grid: { display: false }, ticks: { font: { size: 11 }, crossAlign: 'far' } }
+      }
+    };
+  }
 
   const top10 = [...data].sort((a, b) => b.total - a.total).slice(0, 10);
   charts.ranking = new Chart(document.getElementById('chart-ranking'), {
     type: 'bar',
     data: { labels: top10.map(d => truncate(d.title, 22)), datasets: buildDatasets(top10, (d, p) => d[p], true) },
-    options: barOptions,
+    options: makeBarOptions(top10),
   });
 
   // 開播至今播放排行榜 TOP 10(v12):用全部資料,不受分析區間影響
@@ -1524,7 +1530,7 @@ function renderCharts(data) {
   charts.rankingAlltime = new Chart(document.getElementById('chart-ranking-alltime'), {
     type: 'bar',
     data: { labels: allTop10.map(d => truncate(d.title, 22)), datasets: buildDatasets(allTop10, (d, p) => d[p], true) },
-    options: barOptions,
+    options: makeBarOptions(allTop10),
   });
 
   const appleTotal = data.reduce((s, d) => s + (d.apple || 0), 0);
@@ -2036,26 +2042,31 @@ new Chart(document.getElementById('chart-trend'), {
   }
 });
 
-const barOptions = {
-  indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-  plugins: { legend: { position: 'top', align: 'end' } },
-  scales: {
-    x: { stacked: true, beginAtZero: true, grid: { color: '#e5dec9' } },
-    y: { stacked: true, grid: { display: false }, ticks: { font: { size: 11 }, crossAlign: 'far' } }
-  }
-};
+function makeBarOptions(rows) {
+  return {
+    indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { position: 'top', align: 'end' },
+      tooltip: { callbacks: { title: (items) => rows[items[0].dataIndex].title } }
+    },
+    scales: {
+      x: { stacked: true, beginAtZero: true, grid: { color: '#e5dec9' } },
+      y: { stacked: true, grid: { display: false }, ticks: { font: { size: 11 }, crossAlign: 'far' } }
+    }
+  };
+}
 
 const top10 = [...data].sort((a, b) => b.total - a.total).slice(0, 10);
 new Chart(document.getElementById('chart-ranking'), {
   type: 'bar',
   data: { labels: top10.map(d => truncate(d.title, 22)), datasets: buildDatasets(top10, (d, p) => d[p], true) },
-  options: barOptions,
+  options: makeBarOptions(top10),
 });
 
 new Chart(document.getElementById('chart-ranking-alltime'), {
   type: 'bar',
   data: { labels: ALLTIME.top10.map(d => truncate(d.title, 22)), datasets: buildDatasets(ALLTIME.top10, (d, p) => d[p], true) },
-  options: barOptions,
+  options: makeBarOptions(ALLTIME.top10),
 });
 
 const appleTotal = data.reduce((s, d) => s + (d.apple || 0), 0);
