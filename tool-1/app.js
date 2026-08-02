@@ -1508,11 +1508,11 @@ function renderCharts(data) {
     return {
       indexAxis: 'y', responsive: true, maintainAspectRatio: false,
       plugins: {
-        legend: { position: 'top', align: 'end' },
+        legend: { position: 'top', align: 'start' },
         tooltip: { callbacks: { title: (items) => rows[items[0].dataIndex].title } }
       },
       scales: {
-        x: { stacked: true, beginAtZero: true, grid: { color: '#e5dec9' } },
+        x: { stacked: true, beginAtZero: true, grid: { color: '#e5dec9' }, title: { display: true, text: '次數' } },
         y: { stacked: true, grid: { display: false }, ticks: { font: { size: 11 }, crossAlign: 'far' } }
       }
     };
@@ -1558,7 +1558,7 @@ function renderCharts(data) {
           callbacks: {
             label: (ctx) => {
               const pct = grand > 0 ? ((ctx.parsed / grand) * 100).toFixed(1) : 0;
-              return `${ctx.label}: ${num(ctx.parsed)} (${pct}%)`;
+              return `${ctx.label}: ${num(ctx.parsed)} 次 (${pct}%)`;
             }
           }
         }
@@ -1579,7 +1579,7 @@ function renderCharts(data) {
         ctx.fillText('TOTAL', cx, cy - 18);
         ctx.fillStyle = '#1a1a1a';
         ctx.font = '600 22px "Noto Serif TC", serif';
-        ctx.fillText(num(grand), cx, cy + 2);
+        ctx.fillText(num(grand) + ' 次', cx, cy + 2);
         ctx.fillStyle = '#888';
         ctx.font = '11px "Noto Sans TC", sans-serif';
         ctx.fillText(hasVideo ? '四來源累積' : '三平台累積', cx, cy + 22);
@@ -1597,7 +1597,7 @@ function renderCharts(data) {
         <div class="legend-row">
           <span class="legend-dot" style="background:${it.color}"></span>
           <span class="legend-name">${it.name}</span>
-          <span class="legend-val">${num(it.val)}</span>
+          <span class="legend-val">${num(it.val)} 次</span>
           <span class="legend-pct">${pct}%</span>
         </div>
       `;
@@ -2046,11 +2046,11 @@ function makeBarOptions(rows) {
   return {
     indexAxis: 'y', responsive: true, maintainAspectRatio: false,
     plugins: {
-      legend: { position: 'top', align: 'end' },
+      legend: { position: 'top', align: 'start' },
       tooltip: { callbacks: { title: (items) => rows[items[0].dataIndex].title } }
     },
     scales: {
-      x: { stacked: true, beginAtZero: true, grid: { color: '#e5dec9' } },
+      x: { stacked: true, beginAtZero: true, grid: { color: '#e5dec9' }, title: { display: true, text: '次數' } },
       y: { stacked: true, grid: { display: false }, ticks: { font: { size: 11 }, crossAlign: 'far' } }
     }
   };
@@ -2091,7 +2091,7 @@ new Chart(document.getElementById('chart-share'), {
         callbacks: {
           label: (ctx) => {
             const pct = grand > 0 ? ((ctx.parsed / grand) * 100).toFixed(1) : 0;
-            return ctx.label + ': ' + num(ctx.parsed) + ' (' + pct + '%)';
+            return ctx.label + ': ' + num(ctx.parsed) + ' 次 (' + pct + '%)';
           }
         }
       }
@@ -2112,7 +2112,7 @@ new Chart(document.getElementById('chart-share'), {
       ctx.fillText('TOTAL', cx, cy - 18);
       ctx.fillStyle = '#1a1a1a';
       ctx.font = '600 22px "Noto Serif TC", serif';
-      ctx.fillText(num(grand), cx, cy + 2);
+      ctx.fillText(num(grand) + ' 次', cx, cy + 2);
       ctx.fillStyle = '#888';
       ctx.font = '11px "Noto Sans TC", sans-serif';
       ctx.fillText(HAS_VIDEO ? '四來源累積' : '三平台累積', cx, cy + 22);
@@ -2129,7 +2129,7 @@ if (shareLegend) {
     return '<div class="legend-row">' +
       '<span class="legend-dot" style="background:' + it.color + '"></span>' +
       '<span class="legend-name">' + it.name + '</span>' +
-      '<span class="legend-val">' + num(it.val) + '</span>' +
+      '<span class="legend-val">' + num(it.val) + ' 次</span>' +
       '<span class="legend-pct">' + pct + '%</span>' +
     '</div>';
   }).join('');
