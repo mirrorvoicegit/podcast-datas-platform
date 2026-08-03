@@ -1737,8 +1737,6 @@ function renderTable(allData) {
         <td>${formatDate(d.dateObj)}</td>
         <td class="episode-title">
           ${escapeHtml(d.title)}
-          ${d._ytOriginalTitle ? `<div style="font-size:11px;color:var(--ink-faint);margin-top:4px;font-style:italic;">YouTube:${escapeHtml(d._ytOriginalTitle)}</div>` : ''}
-          ${hasVideo && d._ytVideoOriginalTitle ? `<div style="font-size:11px;color:var(--ink-faint);margin-top:4px;font-style:italic;">影音版:${escapeHtml(d._ytVideoOriginalTitle)}</div>` : ''}
         </td>
         <td class="num platform-apple">${num(d.apple)}</td>
         <td class="num platform-spotify">${num(d.spotify)}</td>
@@ -2213,10 +2211,10 @@ function renderTable() {
     if (HAS_VIDEO && d.youtubeVideo === null) missing.push('YouTube 影音版');
     let note = missing.length > 0 ? '<span class="tag missing">缺 ' + missing.join('、') + '</span>' : '';
     if (d.ytOriginalTitle) {
-      note += '<span class="tag" style="background:rgba(244,226,133,0.5);color:#7a5d00;border:none;">YouTube 標題不同</span>';
+      note += '<span class="tag" style="background:rgba(244,226,133,0.5);color:#7a5d00;border:none;" title="' + escapeAttr(d.ytOriginalTitle) + '">YouTube 標題不同</span>';
     }
     if (HAS_VIDEO && d.ytVideoOriginalTitle) {
-      note += '<span class="tag" style="background:rgba(244,226,133,0.5);color:#7a5d00;border:none;">影音版標題不同</span>';
+      note += '<span class="tag" style="background:rgba(244,226,133,0.5);color:#7a5d00;border:none;" title="' + escapeAttr(d.ytVideoOriginalTitle) + '">影音版標題不同</span>';
     }
     const noteCell =
       (note ? '<div class="note-tags">' + note + '</div>' : '') +
@@ -2224,8 +2222,6 @@ function renderTable() {
     return '<tr' + (d.recentWeek ? ' class="recent-week"' : '') + '>' +
       '<td>' + formatDate(d.dateObj) + '</td>' +
       '<td class="episode-title">' + escapeHtml(d.title) +
-        (d.ytOriginalTitle ? '<div style="font-size:11px;color:var(--ink-faint);margin-top:4px;font-style:italic;">YouTube:' + escapeHtml(d.ytOriginalTitle) + '</div>' : '') +
-        (HAS_VIDEO && d.ytVideoOriginalTitle ? '<div style="font-size:11px;color:var(--ink-faint);margin-top:4px;font-style:italic;">影音版:' + escapeHtml(d.ytVideoOriginalTitle) + '</div>' : '') +
       '</td>' +
       '<td class="num platform-apple">' + num(d.apple) + '</td>' +
       '<td class="num platform-spotify">' + num(d.spotify) + '</td>' +
