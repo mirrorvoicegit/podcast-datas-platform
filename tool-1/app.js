@@ -60,6 +60,30 @@ function detectYtRoleFromFilename(name) {
   return { role: null, confidence: null, reason: null };
 }
 
+// Podcast 版／影音版標題比對用(方向 B,維護者定案):
+// 去括號區塊(節目名｜EP 前後綴)+ emoji + 頭尾的行銷裝飾詞後再比較,
+// 只在標題「頭尾」去除裝飾詞,不動句子中間的正常用詞(避免把真正不同的標題誤判成相同)。
+const YT_TITLE_MARKETING_WORDS = ['獨家', '直擊', '完整版', '精華版', '花絮', '首播'];
+const TITLE_EDGE_PUNCT = /^[、，。！？：；「」『』【】()（）\[\]\-–—_.,!?:;'"~〜･·•\s]+|[、，。！？：；「」『』【】()（）\[\]\-–—_.,!?:;'"~〜･·•\s]+$/g;
+const TITLE_EMOJI_RANGE = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}]/gu;
+
+function normalizeYtTitleForCompare(title) {
+  if (!title) return '';
+  let s = title.replace(/[【『「\[][^】』」\]]*[】』」\]]/g, '');
+  s = s.replace(TITLE_EMOJI_RANGE, '');
+  let prev;
+  do {
+    prev = s;
+    s = s.replace(TITLE_EDGE_PUNCT, '');
+    YT_TITLE_MARKETING_WORDS.forEach(w => {
+      if (s.startsWith(w)) s = s.slice(w.length);
+      if (s.endsWith(w)) s = s.slice(0, -w.length);
+    });
+  } while (s !== prev);
+  s = s.replace(/[、，。！？：；「」『』【】()（）\[\]\-–—_.,!?:;'"~〜･·•\s]/g, '');
+  return s.toLowerCase();
+}
+
 // ============================================================
 // 期間選擇(下拉選單,全部用日曆單位,依上架日)
 // ============================================================
@@ -712,7 +736,7 @@ function makeYtCombinedItem(podcastRow, videoRow, status, confidence) {
     videoMatchStatus: status,
     videoMatchConfidence: confidence,
   };
-  if (podcastRow && videoRow && podcastRow.title !== videoRow.title) {
+  if (podcastRow && videoRow && normalizeYtTitleForCompare(podcastRow.title) !== normalizeYtTitleForCompare(videoRow.title)) {
     item.ytVideoOriginalTitle = videoRow.title;
   }
   return item;
@@ -862,10 +886,10 @@ function enterOrphanReview() {
       p.match[targetPlatform] = p.target[targetPlatform];
       p.match._fuzzyMatched = true;
       if (targetPlatform === 'youtubeVideo') {
-        if (p.match.title !== p.target.title) p.match._ytVideoOriginalTitle = p.target.title;
+        if (normalizeYtTitleForCompare(p.match.title) !== normalizeYtTitleForCompare(p.target.title)) p.match._ytVideoOriginalTitle = p.target.title;
       } else if (targetPlatform === 'youtubePodcast') {
         // 併入的是 Podcast 版孤兒,原本項目是以影音版標題建立的:改用 Podcast 標題當主標題。
-        if (p.match.title !== p.target.title) {
+        if (normalizeYtTitleForCompare(p.match.title) !== normalizeYtTitleForCompare(p.target.title)) {
           p.match._ytVideoOriginalTitle = p.match.title;
           p.match.title = p.target.title;
         }
