@@ -1807,10 +1807,89 @@ if (searchClear) {
 }
 
 // ============================================================
-// 12. 匯出獨立 HTML
+// 12. 匯出 CSV(給 AI／試算表工具用,不是給人看的排版,純數字＋ISO 日期)
+// ============================================================
+function csvEscape(s) {
+  const str = String(s ?? '');
+  if (/[",\n]/.test(str)) return '"' + str.replace(/"/g, '""') + '"';
+  return str;
+}
+
+function isoDateStr(d) {
+  if (!d) return '';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+// 跟 cmpToAvgHtml 同一套判斷邏輯,只是回傳給 CSV 用的純文字(不帶 HTML/箭頭符號)。
+function cmpToAvgText(d) {
+  const avg = state.allTimeAvg || 0;
+  const platforms = state.uploadedPlatforms || [];
+  if (!avg || platforms.length === 0) return '';
+  const complete = platforms.every(p => d[p] !== null);
+  if (!complete) return '';
+  const diffPct = ((d.total - avg) / avg) * 100;
+  if (d.total > avg) return `+${diffPct.toFixed(0)}%`;
+  if (d.total < avg) return `${diffPct.toFixed(0)}%`;
+  return '持平';
+}
+
+function exportCSV() {
+  if (!state.merged) return;
+  const hasVideo = state.hasVideoSource;
+  const showName = document.getElementById('show-name').value.trim() || '節目';
+  const today = localDateStr();
+
+  const headers = [
+    '上線日', '單集標題', 'Apple至今收聽', 'Spotify至今收聽', 'YouTube至今收聽',
+  ];
+  if (hasVideo) headers.push('影音版至今收看');
+  headers.push(hasVideo ? '全來源總計' : '全平台總計', '收聽平均比較', '備註');
+
+  // 跟現有 HTML/PDF 匯出範圍一致:用 state.merged(已套用期間篩選),
+  // 不套用畫面上的關鍵字搜尋(HTML/PDF 匯出本來就不吃搜尋框的即時篩選)。
+  const sorted = [...state.merged].sort((a, b) => {
+    if (!a.dateObj && !b.dateObj) return 0;
+    if (!a.dateObj) return 1;
+    if (!b.dateObj) return -1;
+    return b.dateObj - a.dateObj;
+  });
+
+  const rows = sorted.map(d => {
+    const row = [
+      isoDateStr(d.dateObj),
+      d.title,
+      d.apple ?? '',
+      d.spotify ?? '',
+      d.youtubePodcast ?? '',
+    ];
+    if (hasVideo) row.push(d.youtubeVideo ?? '');
+    row.push(d.total ?? '', cmpToAvgText(d), (state.notes[d._key] || '').trim());
+    return row;
+  });
+
+  const csvLines = [headers, ...rows].map(row => row.map(csvEscape).join(','));
+  const csvContent = csvLines.join('\r\n');
+
+  // UTF-8 with BOM,避免中文欄位在 Excel 開啟時亂碼。
+  const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `單集數據_${showName}_${today}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(a.href);
+}
+
+// ============================================================
+// 13. 匯出獨立 HTML
 // ============================================================
 document.getElementById('btn-print').addEventListener('click', () => window.print());
 document.getElementById('btn-export-html').addEventListener('click', exportStandaloneHTML);
+document.getElementById('btn-export-csv').addEventListener('click', exportCSV);
 
 async function exportStandaloneHTML() {
   if (!state.merged) return;
