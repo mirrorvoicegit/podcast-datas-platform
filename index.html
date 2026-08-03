@@ -341,9 +341,9 @@
       </div>
 
       <div class="tool-meta">
-        <div class="tool-meta-row">
-          <span class="label">版本</span>
-          <span>TODO_VERSION</span>
+        <div class="tool-meta-row" id="tool4-updated-row" style="display:none;">
+          <span class="label">最後整理</span>
+          <span id="tool4-updated-value"></span>
         </div>
       </div>
 
@@ -370,5 +370,48 @@
 
 </div>
 
+<script>
+  // Podcast 報獎雷達卡片「最後整理」:讀 podcast-awards 這個獨立 repo 的爬蟲時間戳,
+  // 不是本站的 commit 時間。邏輯比照 podcast-awards 自己首頁的做法——優先用
+  // program-crawl-candidates.json 的 generatedAt(爬蟲真正跑過的時間),抓不到才退回
+  // data/awards.json 的 updatedAt(人工維護日期)當備援。任何一步失敗(跨網域被擋、
+  // 逾時、對方網站掛掉等)都直接不顯示這個欄位,不顯示錯誤訊息、不顯示半吊子的空白列,
+  // 也不能讓這個請求拖慢或卡住本頁其餘部分的顯示(非同步、有逾時上限)。
+  (function () {
+    const BASE = 'https://mirrorvoicegit.github.io/podcast-awards/';
+    const TIMEOUT_MS = 4000;
+
+    function fetchWithTimeout(url) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+      return fetch(url, { signal: controller.signal, cache: 'no-store' })
+        .then(res => { clearTimeout(timer); return res.ok ? res.json() : Promise.reject(new Error('bad status')); })
+        .catch(err => { clearTimeout(timer); throw err; });
+    }
+
+    function showUpdated(dateStr) {
+      if (!dateStr) return;
+      const row = document.getElementById('tool4-updated-row');
+      const val = document.getElementById('tool4-updated-value');
+      if (!row || !val) return;
+      val.textContent = dateStr;
+      row.style.display = '';
+    }
+
+    fetchWithTimeout(BASE + 'data/program-crawl-candidates.json')
+      .then(data => {
+        if (data && data.generatedAt) {
+          showUpdated(String(data.generatedAt).slice(0, 10));
+        } else {
+          return Promise.reject(new Error('no generatedAt'));
+        }
+      })
+      .catch(() => {
+        fetchWithTimeout(BASE + 'data/awards.json')
+          .then(data => { if (data && data.updatedAt) showUpdated(data.updatedAt); })
+          .catch(() => { /* 兩邊都失敗,欄位維持隱藏,不顯示任何錯誤文字 */ });
+      });
+  })();
+</script>
 </body>
 </html>
