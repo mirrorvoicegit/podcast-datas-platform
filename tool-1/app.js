@@ -1871,13 +1871,31 @@ function exportCSV() {
   });
 
   const csvLines = [headers, ...rows].map(row => row.map(csvEscape).join(','));
+
+  // 訂閱數是節目層級的單一數字(使用者手動填、存 localStorage),不是逐集資料,
+  // 不能塞進表格主體讓每一列重複顯示同一個數字(語意上會誤導成「這一集的訂閱數」)。
+  // 放在表格主體之後另起一段,沒填的平台整列省略,三個都沒填則整段省略。
+  const subApple = document.getElementById('sub-apple').value.trim();
+  const subSpotify = document.getElementById('sub-spotify').value.trim();
+  const subYt = document.getElementById('sub-yt').value.trim();
+  const subRows = [];
+  if (subApple) subRows.push(['Apple', subApple]);
+  if (subSpotify) subRows.push(['Spotify', subSpotify]);
+  if (subYt) subRows.push(['YouTube', subYt]);
+  if (subRows.length > 0) {
+    csvLines.push('');
+    csvLines.push(['節目層級整體訂閱數(非逐集資料,製表時手動填入)'].map(csvEscape).join(','));
+    csvLines.push(['平台', '訂閱數'].map(csvEscape).join(','));
+    subRows.forEach(row => csvLines.push(row.map(csvEscape).join(',')));
+  }
+
   const csvContent = csvLines.join('\r\n');
 
   // UTF-8 with BOM,避免中文欄位在 Excel 開啟時亂碼。
   const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `單集數據_${showName}_${today}.csv`;
+  a.download = `收聽數據_${showName}_${today}.csv`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
