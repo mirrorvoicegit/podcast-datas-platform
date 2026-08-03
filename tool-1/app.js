@@ -754,20 +754,17 @@ function enterFuzzyReview() {
   const dateTo = parseDate(document.getElementById('date-to').value);
   if (dateTo) dateTo.setHours(23, 59, 59, 999);
 
-  function inRange(item) {
-    const d = parseDate(item.releaseDate);
-    if (!d) return true;
-    if (dateFrom && d < dateFrom) return false;
-    if (dateTo && d > dateTo) return false;
-    return true;
-  }
+  // FR-20(維護者定案):期間篩選(依上架日)一律用 Apple 的 Release Date,不再讓
+  // 各平台各自的日期分別過濾原始資料——舊版在合併比對「同一集」之前就先各篩各的,
+  // 若某平台日期跟 Apple 差一天,同一集可能被 A 平台留下、B 平台濾掉,造成同一集
+  // 分析區間內三平台對不上。新流程:先用全部原始資料(不篩日期)完成合併比對,
+  // 比對出「同一集」之後,才用該集 Apple 的日期做期間篩選,三平台判斷基準統一。
+  const apple = state.apple || [];
+  const spotify = state.spotify || [];
 
-  const apple = (state.apple || []).filter(inRange);
-  const spotify = (state.spotify || []).filter(inRange);
-
-  // Shorts 門檻套用到 Podcast 版跟影音版各自的原始資料(FR-17),並記下被排除筆數。
-  const rawPodcast = (state.ytPodcastRows || []).filter(inRange);
-  const rawVideo = (state.ytVideoRows || []).filter(inRange);
+  // Shorts 門檻(FR-17)是資料品質過濾、跟期間篩選無關,套用全部原始資料,不受期間影響。
+  const rawPodcast = state.ytPodcastRows || [];
+  const rawVideo = state.ytVideoRows || [];
   const podcastKept = rawPodcast.filter(r => r.duration >= shortsThreshold);
   const videoKept = rawVideo.filter(r => r.duration >= shortsThreshold);
   state.excludedShortsCount = (rawPodcast.length - podcastKept.length) + (rawVideo.length - videoKept.length);
@@ -783,7 +780,17 @@ function enterFuzzyReview() {
     ytCombined = podcastKept.map(p => makeYtCombinedItem(p, null, null, null));
   }
 
-  const merged = mergeFirstPass(apple, spotify, ytCombined);
+  const mergedAll = mergeFirstPass(apple, spotify, ytCombined);
+
+  // 沒有 Apple 資料的集數(dateObj 為 null)一律保留、不參與期間篩選判斷——
+  // 不用 Spotify/YouTube 的日期靜默頂替,讓「缺 Apple」提示標籤攔下來人工複核。
+  const merged = mergedAll.filter(d => {
+    if (!d.dateObj) return true;
+    if (dateFrom && d.dateObj < dateFrom) return false;
+    if (dateTo && d.dateObj > dateTo) return false;
+    return true;
+  });
+
   const fuzzyPairs = findFuzzyPairs(merged);
 
   staged = { merged, fuzzyPairs, dateFrom, dateTo };
@@ -827,7 +834,7 @@ function renderFuzzyTable(pairs) {
       leftTitle = p.target.title; rightTitle = p.match.title;
     }
 
-    const dateDiff = dateDiffDays(p.target.dateObj, p.match.dateObj);
+    const dateDiff = dateDiffDays(p.target.matchDateObj, p.match.matchDateObj);
     const ambiguousTag = p.ambiguous
       ? '<span class="tag" style="background:rgba(244,226,133,0.6);color:#7a5d00;border:none;margin-left:6px;">候選相近,請確認</span>'
       : '';
@@ -911,11 +918,13 @@ function enterOrphanReview() {
     d.total = (d.apple || 0) + (d.spotify || 0) + (d.youtubePodcast || 0) + (d.youtubeVideo || 0);
   });
 
+  // 孤兒複核表排序用 matchDateObj(該集任一來源最早取得的日期),不是官方上線日,
+  // 純粹是複核時方便人工按時間瀏覽——多數孤兒本來就沒有 Apple 資料。
   staged.merged.sort((a, b) => {
-    if (!a.dateObj && !b.dateObj) return 0;
-    if (!a.dateObj) return 1;
-    if (!b.dateObj) return -1;
-    return b.dateObj - a.dateObj;
+    if (!a.matchDateObj && !b.matchDateObj) return 0;
+    if (!a.matchDateObj) return 1;
+    if (!b.matchDateObj) return -1;
+    return b.matchDateObj - a.matchDateObj;
   });
 
   const orphans = staged.merged.filter(d => {
@@ -952,7 +961,7 @@ function renderOrphanTable(orphans) {
         <td class="episode-title">${escapeHtml(d.title)}</td>
         <td><span class="platform-pill ${pillClass}">${platform}</span></td>
         <td class="num">${num(playValue)}</td>
-        <td>${formatDate(d.dateObj)}</td>
+        <td>${formatDate(d.matchDateObj)}</td>
       </tr>
     `;
   }).join('');
@@ -1091,6 +1100,13 @@ function escapeAttr(s) { return String(s || '').replace(/"/g, '&quot;'); }
 // ============================================================
 // yt 參數是已經做過跨版本配對的組合列(每列可能同時有 youtubePodcast/youtubeVideo,
 // 或只有其中一個),不是原始平台資料。
+// entry.dateObj =「上線日」,一律以 Apple 該集 Release Date 為準(FR-20,維護者定案)。
+// 沒有 Apple 資料的集數,dateObj 為 null——不用 Spotify/YouTube 的日期靜默頂替,
+// 讓「缺 Apple」提示標籤攔下來人工複核,不要看起來像資料完整。
+// entry.matchDateObj 是另一個獨立欄位,保留舊行為(該集任一來源最早取得的日期),
+// 只給「可疑配對」比對/日期視窗、孤兒複核表排序顯示這類內部比對用途使用,
+// 不要跟 dateObj 搞混——多數孤兒本來就沒有 Apple 資料,若拿 dateObj 來配對,
+// 日期視窗會直接失效、配對品質整個崩掉。
 function mergeFirstPass(apple, spotify, yt) {
   [apple, spotify, yt].forEach(arr => arr.forEach(item => {
     item.tokens = titleTokens(item.title);
@@ -1108,7 +1124,8 @@ function mergeFirstPass(apple, spotify, yt) {
           _key: key,
           title: item.title,
           releaseDate: item.releaseDate,
-          dateObj: item.dateObj,
+          matchDateObj: item.dateObj,
+          dateObj: platform === 'apple' ? item.dateObj : null,
           apple: null, spotify: null, youtubePodcast: null, youtubeVideo: null,
           tokens: item.tokens,
         });
@@ -1118,6 +1135,7 @@ function mergeFirstPass(apple, spotify, yt) {
       if (platform === 'apple') {
         entry.title = item.title;
         entry.releaseDate = item.releaseDate;
+        entry.matchDateObj = item.dateObj;
         entry.dateObj = item.dateObj;
         entry.tokens = item.tokens;
       } else if (platform === 'spotify' && !apple.some(a => titleKey(a.title) === key)) {
@@ -1139,7 +1157,8 @@ function mergeFirstPass(apple, spotify, yt) {
         _key: key,
         title: item.title,
         releaseDate: item.releaseDate,
-        dateObj: item.dateObj,
+        matchDateObj: item.dateObj,
+        dateObj: null,
         apple: null, spotify: null, youtubePodcast: null, youtubeVideo: null,
         tokens: item.tokens,
       });
@@ -1188,7 +1207,7 @@ function findFuzzyPairs(merged) {
 
       const bIsOrphanYt = isOrphan(entryB) && isYtPlatform(getPlatform(entryB));
       const bothYt = aIsYt && bIsOrphanYt;
-      if (!bothYt && dateDiffDays(entryA.dateObj, entryB.dateObj) > CROSS_PLATFORM_DATE_WINDOW) continue;
+      if (!bothYt && dateDiffDays(entryA.matchDateObj, entryB.matchDateObj) > CROSS_PLATFORM_DATE_WINDOW) continue;
 
       const sim = jaccardSimilarity(entryA.tokens, entryB.tokens);
       if (sim > bestSim) {
