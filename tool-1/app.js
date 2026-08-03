@@ -1341,7 +1341,7 @@ function applyVideoSourceUI() {
   const ytHeadLabel = document.getElementById('th-yt-label');
   if (ytHeadLabel) {
     ytHeadLabel.innerHTML = state.hasVideoSource
-      ? 'YT<br>至今收聽'
+      ? 'YouTube<br>至今收聽'
       : 'YouTube<br>至今收聽';
   }
   const totalHeadLabel = document.getElementById('th-total-label');
