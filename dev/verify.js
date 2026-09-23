@@ -73,7 +73,7 @@ function assertReport(r, label) {
   const badFill = (r.trendLegend || []).filter(i => !/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(i.fill) && !/^rgba?\(/.test(i.fill));
   check(`${label}:圖例填色都是合法色碼`, badFill.length === 0, badFill.map(i => i.text + '=' + i.fill).join(', '));
   check(`${label}:開播至今 TOP10 圖有 10 筆`, r.alltimeLabels === 10, 'labels=' + r.alltimeLabels);
-  check(`${label}:橫排數字有開播至今單集平均`, r.matchSummaryText.includes('開播至今單集平均'));
+  check(`${label}:橫排數字有開播至今單集中位數`, r.matchSummaryText.includes('開播至今單集中位數'));
   // v16 新增影音版欄(th 恆在、無影音版資料時該欄 CSS 隱藏且不產生 td),故表頭 9 欄、資料列仍 8 格
   check(`${label}:表頭 9 欄、資料列 8 格(無影音版時)`, r.headerCount === 9 && r.rowCells === 8, `th=${r.headerCount} td=${r.rowCells}`);
   check(`${label}:比較欄有紅升也有綠降`, r.cmpUp > 0 && r.cmpDown > 0, `up=${r.cmpUp} down=${r.cmpDown}`);
@@ -93,13 +93,14 @@ function assertReport(r, label) {
   const live = await inspect(page);
   assertReport(live, '畫面版');
 
-  // 平均交叉驗證:期間=開播至今、孤兒全保留時,state.merged 就是完整資料集,可用另一條路徑重算
+  // 中位數交叉驗證(v16.1,原為平均):期間=開播至今、孤兒全保留時,state.merged 就是完整資料集,
+  // 可用另一條路徑(app.js 自己的 median() 函式)重算比對。
   const cross = await page.evaluate(() => {
     const complete = state.merged.filter(d => (state.uploadedPlatforms || []).every(p => d[p] !== null));
-    const avg = complete.length ? Math.round(complete.reduce((s, d) => s + d.total, 0) / complete.length) : 0;
-    return { crossAvg: avg, stateAvg: state.allTimeAvg };
+    const crossMedian = median(complete.map(d => d.total));
+    return { crossMedian, stateMedian: state.allTimeMedian };
   });
-  check('畫面版:單集平均交叉驗證一致', cross.crossAvg === cross.stateAvg, JSON.stringify(cross));
+  check('畫面版:單集中位數交叉驗證一致', cross.crossMedian === cross.stateMedian, JSON.stringify(cross));
 
   await page.screenshot({ path: path.join(OUT, 'report.png'), fullPage: true });
 

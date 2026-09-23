@@ -796,7 +796,7 @@
 
   .tag.missing { background: #fff; border: 1px dashed var(--line); color: var(--ink-faint); }
 
-  /* 收聽平均比較欄(v12):紅漲綠跌,台股慣例。v13.1:整欄統一靠左,箭頭才會上下對齊 */
+  /* 收聽中位數比較欄(v12 比平均、v16.1 改比中位數):紅漲綠跌,台股慣例。v13.1:整欄統一靠左,箭頭才會上下對齊 */
   .cmp-cell { text-align: left !important; white-space: nowrap; }
   .cmp-avg { font-size: 12px; white-space: nowrap; color: var(--ink-faint); }
   .cmp-avg.up { color: #c8341a; font-weight: 700; }
@@ -1191,7 +1191,7 @@
       <div class="period-row">
         <select id="period-select">
           <option value="lastweek">上週(週一~週日)</option>
-          <option value="last30days" selected>近一個月(今天往前 30 天)</option>
+          <option value="last30days" selected>近一個月(上個月同一天至今)</option>
           <option value="thisyear">年初至今</option>
           <option value="all">開播至今</option>
           <option value="custom">自訂區間…</option>
@@ -1494,7 +1494,7 @@
               <th class="num sortable" data-sort="youtubePodcast"><span class="th-label" id="th-yt-label">YouTube<br>至今收聽</span><i class="info-tip" data-tip="YouTube 的觀看次數。已排除時長低於門檻的 Shorts 短影音。">i</i></th>
               <th class="num sortable yt-video-col" data-sort="youtubeVideo"><span class="th-label">影音版<br>至今收看</span><i class="info-tip" data-tip="YouTube 影音版的觀看次數。已排除時長低於門檻的 Shorts 短影音。空白視為缺資料，不等於 0。">i</i></th>
               <th class="num sortable" data-sort="total"><span class="th-label" id="th-total-label">全平台<br>總計</span><i class="info-tip" id="th-total-tip" data-tip="三平台相加，參考用。三平台計算邏輯不同、同一人可能重複計算，不是精準總人次。">i</i></th>
-              <th class="cmp-cell"><span class="th-label">收聽平均<br>比較</span><i class="info-tip" data-tip="該集全平台總計對比「開播至今單集平均」的高低（紅↑高於平均、綠↓低於平均）。平均只計入各上傳平台皆有數據的集數；缺任一平台數據的集數不參與比較，顯示 —。注意：越新的集數累積時間越短，低於平均不代表表現差。">i</i></th>
+              <th class="cmp-cell"><span class="th-label">收聽中位數<br>比較</span><i class="info-tip" data-tip="該集全平台總計對比「開播至今單集中位數」的高低（紅↑高於中位數、綠↓低於中位數）。改用中位數而非平均，是因為單一爆款集會把平均拉高、讓其餘大多數集數都顯示「偏低」；中位數不受單一極端值影響。中位數只計入各上傳平台皆有數據的集數；缺任一平台數據的集數不參與比較，顯示 —。注意：越新的集數累積時間越短，低於中位數不代表表現差。">i</i></th>
               <th>備註</th>
             </tr>
           </thead>

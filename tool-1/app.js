@@ -110,8 +110,12 @@ function computePeriod(preset) {
       return { from: iso(lastMonday), to: iso(lastSunday) };
     }
     case 'last30days': {
-      const from = new Date(today);
-      from.setDate(today.getDate() - 30);
+      // 「近一個月」= 日曆月往前推一個月(今天是幾號,上個月同一天),不是固定 30 天。
+      // 例:今天 9/23 → 上個月 8/23(8 月有 31 天,跟 30 天版本會差 1 天)。
+      // 月底溢位保護:例如今天 3/31,直接 setMonth 會被 JS 進位成 2 月不存在的 31 號、
+      // 自動跳到 3 月初,月份就跳錯了;偵測到「日期對不上」時改回退到上個月最後一天。
+      const from = new Date(today.getFullYear(), today.getMonth() - 1, today.getDate());
+      if (from.getDate() !== today.getDate()) from.setDate(0);
       return { from: iso(from), to: toStr };
     }
     case 'thisyear': {
@@ -1079,6 +1083,17 @@ function num(n) {
   return n.toLocaleString('zh-TW');
 }
 
+// 中位數:排序後取正中間(偶數筆取中間兩筆平均),不受單一爆款集拉高影響,
+// 這是「開播至今單集中位數」與節目觀察爆款判斷共用的基準(改自舊版的算術平均)。
+function median(nums) {
+  if (!nums || nums.length === 0) return 0;
+  const sorted = [...nums].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1
+    ? sorted[mid]
+    : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
+}
+
 function localDateStr(d = new Date()) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -1277,7 +1292,9 @@ function renderReport(showName, data) {
 
   const allTimePlays = allMerged.reduce((s, d) => s + rowTotal(d), 0);
 
-  // 開播至今單集平均(v12):基準只計入「本次上傳的所有來源都有數據」的集數。
+  // 開播至今單集中位數(v12 算平均、v16.1 改中位數):基準只計入「本次上傳的所有
+  // 來源都有數據」的集數。改中位數是因為算術平均會被單一爆款集拉高,導致其餘
+  // 大多數集數都顯示「低於平均」,誤導成表現普遍不佳;中位數不受單一極端值影響。
   // approvedFuzzy 記錄使用者確認過的配對(_key 跨資料集穩定),重套一次避免
   // 標題不同的集數被誤判成「缺資料」。
   const byKey = new Map(allMerged.map(d => [d._key, d]));
@@ -1297,10 +1314,8 @@ function renderReport(showName, data) {
   if (state.hasVideoSource && state.ytVideoRows && state.ytVideoRows.length > 0) uploadedPlatforms.push('youtubeVideo');
 
   const completeRows = allMergedReviewed.filter(d => uploadedPlatforms.every(p => d[p] !== null));
-  state.allTimeAvg = completeRows.length > 0
-    ? Math.round(completeRows.reduce((s, d) => s + rowTotal(d), 0) / completeRows.length)
-    : 0;
-  state.allTimeAvgCount = completeRows.length;
+  state.allTimeMedian = median(completeRows.map(d => rowTotal(d)));
+  state.allTimeMedianCount = completeRows.length;
   state.uploadedPlatforms = uploadedPlatforms;
 
   state.allTimeTop10 = [...allMergedReviewed]
@@ -1403,7 +1418,9 @@ function renderInsights(data) {
   const ytVideoTotal = data.reduce((s, d) => s + (d.youtubeVideo || 0), 0);
   const ytTotal = ytPodcastTotal + ytVideoTotal;
   const grand = appleTotal + spotifyTotal + ytTotal;
-  const avg = data.length > 0 ? Math.round(grand / data.length) : 0;
+  // 爆款判斷基準改用中位數(v16.1,同「收聽中位數比較」的理由):算術平均會被
+  // 該爆款集自己拉高,等於拿被污染過的基準去判斷「是不是爆款」。
+  const med = median(data.map(d => d.total));
 
   const shares = [
     { name: 'Apple Podcast', val: appleTotal },
@@ -1421,7 +1438,7 @@ function renderInsights(data) {
   }
 
   const top = data.reduce((m, d) => d.total > (m?.total || 0) ? d : m, null);
-  if (top && avg > 0 && top.total > avg * 2) {
+  if (top && med > 0 && top.total > med * 2) {
     const platformContrib = [
       { name: 'Apple', val: top.apple || 0 },
       { name: 'Spotify', val: top.spotify || 0 },
@@ -1430,7 +1447,7 @@ function renderInsights(data) {
     if (state.hasVideoSource) platformContrib.push({ name: 'YouTube 影音版', val: top.youtubeVideo || 0 });
     platformContrib.sort((a, b) => b.val - a.val);
     const topPct = ((platformContrib[0].val / top.total) * 100).toFixed(0);
-    insights.push(`<strong>最高單集「${escapeHtml(truncate(top.title, 30))}」</strong>達 ${num(top.total)} 次,是單集平均(${num(avg)})的 ${(top.total/avg).toFixed(1)} 倍。主要由 ${platformContrib[0].name} 貢獻(${topPct}%),建議分析該集在該來源的成功原因(標題、選題、上線時機)。`);
+    insights.push(`<strong>最高單集「${escapeHtml(truncate(top.title, 30))}」</strong>達 ${num(top.total)} 次,是單集中位數(${num(med)})的 ${(top.total/med).toFixed(1)} 倍。主要由 ${platformContrib[0].name} 貢獻(${topPct}%),建議分析該集在該來源的成功原因(標題、選題、上線時機)。`);
   }
 
   const podcastTotal = appleTotal + spotifyTotal;
@@ -1468,7 +1485,7 @@ function renderMatchSummary(data) {
   html += `
     <div class="match-stat"><span>單集總數</span><strong>${data.length}</strong></div>
     ${fuzzy > 0 ? `<div class="match-stat"><span>後備比對成功</span><strong>${fuzzy}</strong></div>` : ''}
-    <div class="match-stat"><span>開播至今單集平均</span><strong>${num(state.allTimeAvg)}</strong></div>
+    <div class="match-stat"><span>開播至今單集中位數</span><strong>${num(state.allTimeMedian)}</strong></div>
   `;
   document.getElementById('match-summary').innerHTML = html;
 }
@@ -1648,18 +1665,18 @@ function renderCharts(data) {
 // 11. 表格(排序 + 搜尋)
 // ============================================================
 
-// 「收聽平均比較」欄(v12):該集全部已上傳來源總計 vs 開播至今單集平均。
-// 高於平均=紅色箭頭朝上、低於=綠色箭頭朝下(台股慣例:紅漲綠跌)。
+// 「收聽中位數比較」欄(v12 比平均、v16.1 改比中位數):該集全部已上傳來源總計
+// vs 開播至今單集中位數。高於中位數=紅色箭頭朝上、低於=綠色箭頭朝下(台股慣例:紅漲綠跌)。
 // 缺任一已上傳來源數據的集數不參與比較(顯示 —),因為它的總計天生偏低,比了不公平。
-function cmpToAvgHtml(d) {
-  const avg = state.allTimeAvg || 0;
+function cmpToMedianHtml(d) {
+  const med = state.allTimeMedian || 0;
   const platforms = state.uploadedPlatforms || [];
-  if (!avg || platforms.length === 0) return '—';
+  if (!med || platforms.length === 0) return '—';
   const complete = platforms.every(p => d[p] !== null);
   if (!complete) return '—';
-  const diffPct = ((d.total - avg) / avg) * 100;
-  if (d.total > avg) return `<span class="cmp-avg up">▲ +${diffPct.toFixed(0)}%</span>`;
-  if (d.total < avg) return `<span class="cmp-avg down">▼ ${diffPct.toFixed(0)}%</span>`;
+  const diffPct = ((d.total - med) / med) * 100;
+  if (d.total > med) return `<span class="cmp-avg up">▲ +${diffPct.toFixed(0)}%</span>`;
+  if (d.total < med) return `<span class="cmp-avg down">▼ ${diffPct.toFixed(0)}%</span>`;
   return '<span class="cmp-avg">持平</span>';
 }
 function renderTable(allData) {
@@ -1739,7 +1756,7 @@ function renderTable(allData) {
         <td class="num platform-yt">${num(d.youtubePodcast)}</td>
         ${hasVideo ? `<td class="num platform-yt yt-video-col">${num(d.youtubeVideo)}</td>` : ''}
         <td class="num"><strong>${num(d.total)}</strong></td>
-        <td class="cmp-cell">${cmpToAvgHtml(d)}</td>
+        <td class="cmp-cell">${cmpToMedianHtml(d)}</td>
         <td class="note-cell">${noteCell}</td>
       </tr>
     `;
@@ -1823,16 +1840,16 @@ function isoDateStr(d) {
   return `${y}-${m}-${day}`;
 }
 
-// 跟 cmpToAvgHtml 同一套判斷邏輯,只是回傳給 CSV 用的純文字(不帶 HTML/箭頭符號)。
-function cmpToAvgText(d) {
-  const avg = state.allTimeAvg || 0;
+// 跟 cmpToMedianHtml 同一套判斷邏輯,只是回傳給 CSV 用的純文字(不帶 HTML/箭頭符號)。
+function cmpToMedianText(d) {
+  const med = state.allTimeMedian || 0;
   const platforms = state.uploadedPlatforms || [];
-  if (!avg || platforms.length === 0) return '';
+  if (!med || platforms.length === 0) return '';
   const complete = platforms.every(p => d[p] !== null);
   if (!complete) return '';
-  const diffPct = ((d.total - avg) / avg) * 100;
-  if (d.total > avg) return `+${diffPct.toFixed(0)}%`;
-  if (d.total < avg) return `${diffPct.toFixed(0)}%`;
+  const diffPct = ((d.total - med) / med) * 100;
+  if (d.total > med) return `+${diffPct.toFixed(0)}%`;
+  if (d.total < med) return `${diffPct.toFixed(0)}%`;
   return '持平';
 }
 
@@ -1846,7 +1863,7 @@ function exportCSV() {
     '上線日', '單集標題', 'Apple至今收聽', 'Spotify至今收聽', 'YouTube至今收聽',
   ];
   if (hasVideo) headers.push('影音版至今收看');
-  headers.push(hasVideo ? '全來源總計' : '全平台總計', '收聽平均比較', '備註');
+  headers.push(hasVideo ? '全來源總計' : '全平台總計', '收聽中位數比較', '備註');
 
   // 跟現有 HTML/PDF 匯出範圍一致:用 state.merged(已套用期間篩選),
   // 不套用畫面上的關鍵字搜尋(HTML/PDF 匯出本來就不吃搜尋框的即時篩選)。
@@ -1866,7 +1883,7 @@ function exportCSV() {
       d.youtubePodcast ?? '',
     ];
     if (hasVideo) row.push(d.youtubeVideo ?? '');
-    row.push(d.total ?? '', cmpToAvgText(d), (state.notes[d._key] || '').trim());
+    row.push(d.total ?? '', cmpToMedianText(d), (state.notes[d._key] || '').trim());
     return row;
   });
 
@@ -1959,7 +1976,7 @@ async function exportStandaloneHTML() {
   }));
 
   const alltimeToEmbed = {
-    avg: state.allTimeAvg || 0,
+    median: state.allTimeMedian || 0,
     top10: state.allTimeTop10 || [],
   };
 
@@ -2094,11 +2111,11 @@ function escapeHtml(s) {
 }
 function escapeAttr(s) { return String(s || '').replace(/"/g, '&quot;'); }
 
-function cmpToAvgHtml(d) {
-  if (!ALLTIME.avg || !d.complete) return '—';
-  const diffPct = ((d.total - ALLTIME.avg) / ALLTIME.avg) * 100;
-  if (d.total > ALLTIME.avg) return '<span class="cmp-avg up">▲ +' + diffPct.toFixed(0) + '%</span>';
-  if (d.total < ALLTIME.avg) return '<span class="cmp-avg down">▼ ' + diffPct.toFixed(0) + '%</span>';
+function cmpToMedianHtml(d) {
+  if (!ALLTIME.median || !d.complete) return '—';
+  const diffPct = ((d.total - ALLTIME.median) / ALLTIME.median) * 100;
+  if (d.total > ALLTIME.median) return '<span class="cmp-avg up">▲ +' + diffPct.toFixed(0) + '%</span>';
+  if (d.total < ALLTIME.median) return '<span class="cmp-avg down">▼ ' + diffPct.toFixed(0) + '%</span>';
   return '<span class="cmp-avg">持平</span>';
 }
 
@@ -2321,7 +2338,7 @@ function renderTable() {
       '<td class="num platform-yt">' + num(d.youtubePodcast) + '</td>' +
       (HAS_VIDEO ? '<td class="num platform-yt yt-video-col">' + num(d.youtubeVideo) + '</td>' : '') +
       '<td class="num"><strong>' + num(d.total) + '</strong></td>' +
-      '<td class="cmp-cell">' + cmpToAvgHtml(d) + '</td>' +
+      '<td class="cmp-cell">' + cmpToMedianHtml(d) + '</td>' +
       '<td class="note-cell">' + noteCell + '</td>' +
     '</tr>';
   }).join('');
