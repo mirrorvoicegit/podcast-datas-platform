@@ -34,7 +34,10 @@ const DEFAULT_TRACKED = [
 ];
 
 const state = {
-  files: [],            // [{name, rows: [...], dateMin, dateMax}]
+  files: [],            // [{name(=分頁名), sourceFile(=實際上傳的檔名), rows, dateMin, dateMax}]
+                        // 一個上傳檔案可能展開成多筆(見 parseXlsx,一個 xlsx 內每個符合格式的
+                        // log 分頁各算一筆),name 是分頁名不是檔名,sourceFile 只用來避免同一
+                        // 個實體檔案被重複加入
   trackedKeywords: [],  // ['投資不踩雷', '鏡錶誌', ...]
   trackedEnabled: {},   // {投資不踩雷: true, ...}
   allRows: [],          // 全部 row(不論區間)
@@ -158,19 +161,23 @@ uploadZone.addEventListener('drop', (e) => {
 
 async function handleFiles(fileList) {
   for (const file of fileList) {
-    // 避免重複加入同名檔案
-    if (state.files.find(f => f.name === file.name)) continue;
+    // 避免同一個實體檔案重複加入(一個檔案可能展開成多個分頁時段,見 parseXlsx)
+    if (state.files.find(f => f.sourceFile === file.name)) continue;
     try {
-      const parsed = await parseXlsx(file);
-      state.files.push({
-        name: file.name,
-        rows: parsed.rows,
-        dateMin: parsed.dateMin,
-        dateMax: parsed.dateMax,
+      const groups = await parseXlsx(file);
+      groups.forEach(g => {
+        state.files.push({
+          name: g.sheetName,
+          sourceFile: file.name,
+          rows: g.rows,
+          dateMin: g.dateMin,
+          dateMax: g.dateMax,
+        });
       });
     } catch (err) {
       state.files.push({
         name: file.name,
+        sourceFile: file.name,
         error: err.message || '解析失敗',
         rows: [],
       });
@@ -180,56 +187,65 @@ async function handleFiles(fileList) {
   checkReady();
 }
 
+// 一個 xlsx 可能含多個工作表:真正的逐筆播放 log 分頁(欄位符合必要欄位),
+// 以及跟本工具無關的彙整/排行榜分頁(例如同事匯出檔常見的「週排行」分頁,
+// 欄位是排行/節目名稱/收聽人數/收聽時數,對不上必要欄位)。也可能同一個
+// 檔案裡塞了不只一週的 log(各自一個分頁)。
+// 做法(2026.09 凍牙拍板):掃過所有工作表,只留下欄位符合必要欄位、清洗後
+// 還有資料的分頁,每個這樣的分頁各自算一個獨立的「時段」——沿用原本
+// 「一份資料=一個可畫進跨期趨勢圖的時段」的假設,只是來源從「一個檔案」
+// 改成「一個工作表」,不是特例硬寫死「週排行」這個分頁名稱去跳過(避免
+// 之後分頁名稱又換了又要改一次)。
 function parseXlsx(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
         const wb = XLSX.read(e.target.result, { type: 'binary', cellDates: true });
-        const sheetName = wb.SheetNames[0];
-        const rawRows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: null, raw: false });
-
-        if (rawRows.length === 0) {
-          return reject(new Error('檔案沒有資料'));
-        }
-
-        // 驗證欄位
         const required = ['節目名稱', '單集名稱', '會員id', '會員類型', '收聽秒數', 'start_time'];
-        const missing = required.filter(c => !(c in rawRows[0]));
-        if (missing.length > 0) {
-          return reject(new Error(`缺少必要欄位: ${missing.join(', ')}`));
-        }
+        const results = [];
 
-        // 解析並過濾髒資料
-        const cleaned = [];
-        for (const r of rawRows) {
-          const startTime = parseDate(r.start_time);
-          // 排除 1970 髒資料
-          if (!startTime || startTime.getFullYear() < 2020) continue;
+        for (const sheetName of wb.SheetNames) {
+          const rawRows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: null, raw: false });
+          if (rawRows.length === 0) continue;
 
-          cleaned.push({
-            showName: String(r['節目名稱'] || '').trim(),
-            episodeId: r['單集id'],
-            episodeName: String(r['單集名稱'] || '').trim(),
-            memberId: r['會員id'],
-            memberType: String(r['會員類型'] || '').trim(),
-            listenSeconds: parseInt(r['收聽秒數']) || 0,
-            startTime: startTime,
-            platform: String(r['收聽平台'] || '').trim(),
-            isFreeShow: r['是否為免費節目'],
-            albumCategory: String(r['專輯分類'] || '').trim(),
+          const missing = required.filter(c => !(c in rawRows[0]));
+          if (missing.length > 0) continue; // 不是 log 分頁(例如彙整排行榜),跳過、不算錯誤
+
+          const cleaned = [];
+          for (const r of rawRows) {
+            const startTime = parseDate(r.start_time);
+            // 排除 1970 髒資料
+            if (!startTime || startTime.getFullYear() < 2020) continue;
+
+            cleaned.push({
+              showName: String(r['節目名稱'] || '').trim(),
+              episodeId: r['單集id'],
+              episodeName: String(r['單集名稱'] || '').trim(),
+              memberId: r['會員id'],
+              memberType: String(r['會員類型'] || '').trim(),
+              listenSeconds: parseInt(r['收聽秒數']) || 0,
+              startTime: startTime,
+              platform: String(r['收聽平台'] || '').trim(),
+              isFreeShow: r['是否為免費節目'],
+              albumCategory: String(r['專輯分類'] || '').trim(),
+            });
+          }
+          if (cleaned.length === 0) continue; // 欄位對,但清洗後沒剩資料,同樣跳過不當錯誤
+
+          const dates = cleaned.map(r => r.startTime).filter(Boolean);
+          results.push({
+            sheetName,
+            rows: cleaned,
+            dateMin: new Date(Math.min(...dates)),
+            dateMax: new Date(Math.max(...dates)),
           });
         }
 
-        if (cleaned.length === 0) {
-          return reject(new Error('檔案沒有有效資料'));
+        if (results.length === 0) {
+          return reject(new Error(`找不到符合格式的工作表(需要欄位:${required.join('、')})`));
         }
-
-        const dates = cleaned.map(r => r.startTime).filter(Boolean);
-        const dateMin = new Date(Math.min(...dates));
-        const dateMax = new Date(Math.max(...dates));
-
-        resolve({ rows: cleaned, dateMin, dateMax });
+        resolve(results);
       } catch (err) {
         reject(err);
       }
@@ -437,7 +453,7 @@ function renderReport() {
   const origDays = Math.ceil((state.dateOrigMax - state.dateOrigMin) / 86400000) + 1;
   document.getElementById('range-text').textContent = `${formatDate(state.dateOrigMin)} — ${formatDate(state.dateOrigMax)}`;
   document.getElementById('range-days').textContent = `${origDays} 天`;
-  document.getElementById('range-sources').textContent = `${state.files.filter(f => !f.error).length} 個檔案`;
+  document.getElementById('range-sources').textContent = `${state.files.filter(f => !f.error).length} 個時段`;
 
   // 摘要(只計入追蹤節目)
   const trackedRows = rows.filter(r => isTrackedAndEnabled(r.showName));
@@ -698,10 +714,11 @@ function renderCharts(allRows, trackedRows) {
 }
 
 function renderTrendChart(trackedRows) {
-  // 按檔案區間切時段,計算每段的各節目唯一聽眾數
+  // 按 state.files 裡每一段的區間切時段,計算每段的各節目唯一聽眾數。
+  // state.files 現在是「每個 log 分頁一筆」(見 parseXlsx),不是「每個上傳檔案一筆」,
+  // 一個上傳檔案若含多週 log 分頁,這裡自然會切成對應的多個時段。
   const files = state.files.filter(f => !f.error);
 
-  // 每個檔案算一個時段
   const periods = files.map(f => ({
     label: `${formatDate(f.dateMin)}\n~${formatDate(f.dateMax)}`,
     fileRows: f.rows.filter(r => isTrackedAndEnabled(r.showName)),
