@@ -2008,7 +2008,7 @@ function exportCSV() {
   // 「收聽中位數比較」欄的基準是怎麼算的(節目層級的說明,不塞進逐集表格,做法同下方訂閱數)。
   if (state.allTimeMedianCount > 0) {
     csvLines.push('');
-    csvLines.push([`收聽中位數比較的基準(開播至今單集中位數,只計入各上傳平台都有數據的集數${state.hasVideoSource ? ',不含影音版' : ''})`].map(csvEscape).join(','));
+    csvLines.push([`收聽中位數比較的基準${state.hasVideoSource ? '(不含影音版)' : ''}`].map(csvEscape).join(','));
     csvLines.push(['項目', '值'].map(csvEscape).join(','));
     csvLines.push(['中位數', state.allTimeMedian].map(csvEscape).join(','));
     csvLines.push(['計算起日', isoDateStr(state.allTimeMedianFrom)].map(csvEscape).join(','));
