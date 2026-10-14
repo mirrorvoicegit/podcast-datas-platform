@@ -1478,8 +1478,8 @@ function applyVideoSourceUI() {
   const totalTip = document.getElementById('th-total-tip');
   if (totalTip) {
     totalTip.setAttribute('data-tip', state.hasVideoSource
-      ? 'Apple＋Spotify＋YouTube Podcast 版＋YouTube 影音版相加，參考用。各來源計算邏輯不同、同一人可能重複計算，不是精準總人次。'
-      : '三平台相加，參考用。三平台計算邏輯不同、同一人可能重複計算，不是精準總人次。');
+      ? 'Apple、Spotify、YouTube Podcast 版與影音版的收聽「次數」相加，不是人數；同一人重複收聽會重複計入。各來源計次標準不同，僅供看量級。'
+      : '三平台的收聽「次數」相加（Apple Plays、Spotify plays、YouTube 觀看次數），不是人數；同一人重複收聽會重複計入。各平台計次標準不同，僅供看量級。');
   }
 
   const shortsNote = document.getElementById('shorts-excluded-note');
@@ -1597,7 +1597,7 @@ function renderMatchSummary(data) {
   }
   html += `
     <div class="match-stat"><span>單集總數</span><strong>${data.length}</strong></div>
-    ${fuzzy > 0 ? `<div class="match-stat"><span>後備比對成功</span><strong>${fuzzy}</strong></div>` : ''}
+    ${fuzzy > 0 ? `<div class="match-stat"><span>標題相似配對</span><strong>${fuzzy}</strong></div>` : ''}
     ${dupCount > 0 ? `<div class="match-stat"><span>同標題重複</span><strong>${dupCount}</strong><em class="match-note">數字已取較大值</em></div>` : ''}
     <div class="match-stat"><span>開播至今單集中位數</span><strong>${state.allTimeMedianCount > 0 ? num(state.allTimeMedian) : '—'}</strong><em class="match-note">${state.allTimeMedianCount > 0 ? `${formatDate(state.allTimeMedianFrom)} 起・共 ${num(state.allTimeMedianCount)} 集${state.hasVideoSource ? '・不含影音版' : ''}` : '沒有各平台都有數據的集數'}</em></div>
   `;
