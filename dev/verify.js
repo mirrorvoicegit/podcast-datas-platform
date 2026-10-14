@@ -96,11 +96,19 @@ function assertReport(r, label) {
   // 中位數交叉驗證(v16.1,原為平均):期間=開播至今、孤兒全保留時,state.merged 就是完整資料集,
   // 可用另一條路徑(app.js 自己的 median() 函式)重算比對。
   const cross = await page.evaluate(() => {
-    const complete = state.merged.filter(d => (state.uploadedPlatforms || []).every(p => d[p] !== null));
+    // v16.2:基準只計入每個上傳平台都「有數據」(非空白、大於 0)的集數;這裡用獨立寫法重算,不呼叫 hasPlays
+    const complete = state.merged.filter(d => (state.uploadedPlatforms || []).every(p => d[p] !== null && d[p] > 0));
     const crossMedian = median(complete.map(d => d.total));
-    return { crossMedian, stateMedian: state.allTimeMedian };
+    const byNum = n => state.merged.find(d => d.title.startsWith(`第${n}集`));
+    const e9 = byNum(9), e10 = byNum(10);
+    return { crossMedian, stateMedian: state.allTimeMedian,
+      blankIsNull: e9 && e9.apple === null,          // 第 9 集 Apple 空白 → 缺資料,不是 0
+      zeroStaysZero: e10 && e10.apple === 0,         // 第 10 集 Apple 明確 0 → 保留 0
+      blankExcluded: complete.every(d => !d.title.startsWith('第9集') && !d.title.startsWith('第10集')) };
   });
   check('畫面版:單集中位數交叉驗證一致', cross.crossMedian === cross.stateMedian, JSON.stringify(cross));
+  check('畫面版:Apple 空白視為缺資料(null),不是 0', cross.blankIsNull);
+  check('畫面版:Apple 明確 0 保留為 0、但與空白一樣不進中位數基準', cross.zeroStaysZero && cross.blankExcluded);
 
   await page.screenshot({ path: path.join(OUT, 'report.png'), fullPage: true });
 

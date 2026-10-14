@@ -463,7 +463,7 @@ function parsePlatformCSV(platform, rows) {
       .filter(r => r['Episode Title'] && r['Episode Title'].trim())
       .map(r => ({
         title: r['Episode Title'].trim(),
-        plays: parseInt(r['Plays']) || 0,
+        plays: parsePlaysNullable(r['Plays']),
         releaseDate: r['Release Date'] || '',
         duration: parseInt(r['Duration']) || 0,
       }));
@@ -477,7 +477,7 @@ function parsePlatformCSV(platform, rows) {
       .filter(r => r.name && r.name.trim())
       .map(r => ({
         title: r.name.trim(),
-        plays: parseInt(r.plays) || 0,
+        plays: parsePlaysNullable(r.plays),
         releaseDate: r.releaseDate || '',
         duration: 0,
       }));
@@ -1083,6 +1083,15 @@ function num(n) {
   return n.toLocaleString('zh-TW');
 }
 
+// 「這個平台對這集有沒有數據」:空白(null)與 0 都視為沒有。
+// v16.2(凍牙拍板):中位數基準與「收聽中位數比較」只計入每個上傳平台都有數據的集數。
+// 為什麼 0 也算沒有:Apple 後台若匯出的是某段日期區間(例如 60 天)而不是累積至今,
+// 老集會是空白或 0,那不代表「這集真的沒人聽」,而是「這個區間內沒資料」,
+// 拿來算基準會把中位數壓到失真(實測 98,排除後 152)。
+function hasPlays(v) {
+  return v !== null && v !== undefined && v > 0;
+}
+
 // 中位數:排序後取正中間(偶數筆取中間兩筆平均),不受單一爆款集拉高影響,
 // 這是「開播至今單集中位數」與節目觀察爆款判斷共用的基準(改自舊版的算術平均)。
 function median(nums) {
@@ -1313,7 +1322,7 @@ function renderReport(showName, data) {
   if (state.ytPodcastRows && state.ytPodcastRows.length > 0) uploadedPlatforms.push('youtubePodcast');
   if (state.hasVideoSource && state.ytVideoRows && state.ytVideoRows.length > 0) uploadedPlatforms.push('youtubeVideo');
 
-  const completeRows = allMergedReviewed.filter(d => uploadedPlatforms.every(p => d[p] !== null));
+  const completeRows = allMergedReviewed.filter(d => uploadedPlatforms.every(p => hasPlays(d[p])));
   state.allTimeMedian = median(completeRows.map(d => rowTotal(d)));
   state.allTimeMedianCount = completeRows.length;
   state.uploadedPlatforms = uploadedPlatforms;
@@ -1672,7 +1681,7 @@ function cmpToMedianHtml(d) {
   const med = state.allTimeMedian || 0;
   const platforms = state.uploadedPlatforms || [];
   if (!med || platforms.length === 0) return '—';
-  const complete = platforms.every(p => d[p] !== null);
+  const complete = platforms.every(p => hasPlays(d[p]));
   if (!complete) return '—';
   const diffPct = ((d.total - med) / med) * 100;
   if (d.total > med) return `<span class="cmp-avg up">▲ +${diffPct.toFixed(0)}%</span>`;
@@ -1845,7 +1854,7 @@ function cmpToMedianText(d) {
   const med = state.allTimeMedian || 0;
   const platforms = state.uploadedPlatforms || [];
   if (!med || platforms.length === 0) return '';
-  const complete = platforms.every(p => d[p] !== null);
+  const complete = platforms.every(p => hasPlays(d[p]));
   if (!complete) return '';
   const diffPct = ((d.total - med) / med) * 100;
   if (d.total > med) return `+${diffPct.toFixed(0)}%`;
@@ -1972,7 +1981,7 @@ async function exportStandaloneHTML() {
     recentWeek: _isRecentWeek(d.dateObj),
     note: (state.notes[d._key] || '').trim() || null,
     complete: (state.uploadedPlatforms || []).length > 0 &&
-      state.uploadedPlatforms.every(p => d[p] !== null),
+      state.uploadedPlatforms.every(p => hasPlays(d[p])),
   }));
 
   const alltimeToEmbed = {

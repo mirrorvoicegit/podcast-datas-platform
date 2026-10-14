@@ -28,13 +28,15 @@ for (let i = 0; i < 30; i++) {
 const YT_TITLE_DIFF = new Set([3, 7]);   // 這幾集 YouTube 標題不同(觸發可疑配對)
 const NO_YT = new Set([5, 12]);           // 這幾集沒有 YouTube(缺平台,平均比較該顯示 —)
 const NO_APPLE = new Set([20]);           // 這集只有 Spotify+YouTube
+const BLANK_APPLE = new Set([9]);         // Apple 列存在但 Plays 空白(v16.2:應視為缺資料,不是 0)
+const ZERO_APPLE = new Set([10]);         // Apple Plays 明確填 0(v16.2:視為沒有數據,不進中位數)
 const enUS = d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
 // --- Apple:Show Name,...,Episode Title,Release Date,Duration,...,Plays,... ---
 let apple = 'Show Name,Episode ID,Episode GUID,Episode Number,Episode Title,Release Date,Duration,Unique Listeners,Unique Engaged Listeners,Plays,Average Consumption\n';
 episodes.forEach(e => {
   if (NO_APPLE.has(e.n)) return;
-  apple += `"測試節目",${1000 + e.n},"guid-${e.n}",NaN,"${e.title}",${e.ymd},1200,${Math.round(e.apple * 0.7)},${Math.round(e.apple * 0.5)},${e.apple},0.8\n`;
+  apple += `"測試節目",${1000 + e.n},"guid-${e.n}",NaN,"${e.title}",${e.ymd},1200,${Math.round(e.apple * 0.7)},${Math.round(e.apple * 0.5)},${BLANK_APPLE.has(e.n) ? '' : ZERO_APPLE.has(e.n) ? 0 : e.apple},0.8\n`;
 });
 fs.writeFileSync(path.join(OUT, 'apple.csv'), apple);
 
