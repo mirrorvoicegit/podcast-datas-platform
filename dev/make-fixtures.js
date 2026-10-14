@@ -59,12 +59,39 @@ episodes.forEach(e => {
   ytRows.push(`vid${String(e.n).padStart(3, '0')},${JSON.stringify(title)},"${enUS(e.date)}",1350,${e.yt}`);
   ytTotal += e.yt;
 });
+// v18:同標題重複上傳(第 8 集多一支同標題、觀看數很小的影片,排在檔案後面)。
+// 舊版後者會蓋掉前者(1777 → 5);現在要取較大值。
+{
+  const e8 = episodes[7];
+  ytRows.push(`vidD08,${JSON.stringify(e8.title)},"${enUS(e8.date)}",1350,5`);
+  ytTotal += 5;
+}
 // Shorts(時長 60 秒,該被門檻排除)
 ytRows.push(`vidS01,"📈測試 Shorts 短影音一","${enUS(episodes[10].date)}",60,9999`);
 ytRows.push(`vidS02,"📈測試 Shorts 短影音二","${enUS(episodes[15].date)}",45,8888`);
 ytTotal += 9999 + 8888;
 yt += `總計,,,,${ytTotal}\n` + ytRows.join('\n') + '\n';
 fs.writeFileSync(path.join(OUT, 'youtube.csv'), yt);
+
+// v18:兩份影音版播放清單(例如新聞鏡來聽的「社會線上」「鏡爆點」各自的影音版)。
+// 標題把【第N集】放到結尾(跟 Podcast 版標題擺法不同,所以不會與 Apple/Spotify 標題逐字相同)。
+// 影音版 B 刻意含一列跟 A 同影片 ID,測試「同一支影片只算一次」。
+function videoCsv(nums, extraDupId) {
+  let out = '內容,影片標題,影片發布時間,時間長度,觀看次數\n';
+  const rows = [];
+  nums.forEach(n => {
+    const e = episodes[n - 1];
+    rows.push(`vv${String(n).padStart(3, '0')},"測試節目主題${n}【第${n}集】","${enUS(e.date)}",1400,${100 + n}`);
+  });
+  if (extraDupId) {
+    const n = extraDupId;
+    const e = episodes[n - 1];
+    rows.push(`vv${String(n).padStart(3, '0')},"測試節目主題${n}【第${n}集】","${enUS(e.date)}",1400,${100 + n}`);
+  }
+  return out + '總計,,,,0\n' + rows.join('\n') + '\n';
+}
+fs.writeFileSync(path.join(OUT, 'youtube_video_a.csv'), videoCsv([1, 2, 3, 4, 6, 7]));
+fs.writeFileSync(path.join(OUT, 'youtube_video_b.csv'), videoCsv([8, 9, 11, 13, 14, 15], 1));
 
 console.log('fixtures 已產生:', fs.readdirSync(OUT).join(', '));
 console.log('集數 30,其中 YouTube 標題不同:', [...YT_TITLE_DIFF].join(','),

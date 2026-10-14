@@ -104,12 +104,15 @@ function assertReport(r, label) {
     const e9 = byNum(9), e10 = byNum(10);
     return { crossMedian, stateMedian: state.allTimeMedian,
       noteCount: (document.getElementById('match-summary').innerText.match(/共 (\d+) 集/) || [])[1] === String(state.allTimeMedianCount),
+      // v18:第 8 集 YouTube 有兩支同標題(1777 與 5,小的排在後面),取較大值 → 應是 1777,且標記 _dup
+      dupMax: byNum(8) && byNum(8).youtubePodcast === 1777 && byNum(8)._dup === true,
       blankIsNull: e9 && e9.apple === null,          // 第 9 集 Apple 空白 → 缺資料,不是 0
       zeroStaysZero: e10 && e10.apple === 0,         // 第 10 集 Apple 明確 0 → 保留 0
       blankExcluded: complete.every(d => !d.title.startsWith('第9集') && !d.title.startsWith('第10集')) };
   });
   check('畫面版:單集中位數交叉驗證一致', cross.crossMedian === cross.stateMedian, JSON.stringify(cross));
   check('畫面版:中位數旁標的集數 = 實際母體集數', cross.noteCount);
+  check('畫面版:同標題重複影片取較大值(1777,不是被後面的 5 蓋掉)', cross.dupMax);
   check('畫面版:Apple 空白視為缺資料(null),不是 0', cross.blankIsNull);
   check('畫面版:Apple 明確 0 保留為 0、但與空白一樣不進中位數基準', cross.zeroStaysZero && cross.blankExcluded);
 
@@ -135,6 +138,53 @@ function assertReport(r, label) {
   const exported = await inspect(page2);
   assertReport(exported, '匯出版');
   await page2.screenshot({ path: path.join(OUT, 'export.png'), fullPage: true });
+
+  // ---- v18 新情境:YouTube 檔案不限兩份(Podcast 版 + 兩份影音版播放清單) ----
+  const page3 = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const errors3 = [];
+  page3.on('pageerror', e => errors3.push(e.message));
+  await page3.goto('file://' + indexPath);
+  await page3.setInputFiles('#file-all', ['apple.csv', 'spotify.csv', 'youtube.csv', 'youtube_video_a.csv', 'youtube_video_b.csv'].map(f => path.join(FIX, f)));
+  await page3.waitForTimeout(1200);
+  await page3.selectOption('#period-select', 'all');
+  await page3.click('#btn-generate');
+  await page3.waitForTimeout(600);
+  const roleScreen = await page3.evaluate(() => ({
+    visible: document.getElementById('ytrole-section').style.display === 'block',
+    roles: [...document.querySelectorAll('.ytrole-select')].map(s => s.value),
+    n: state.ytFiles.length,
+    swapHidden: document.getElementById('btn-ytrole-swap').style.display === 'none',
+    continueEnabled: !document.getElementById('btn-ytrole-continue').disabled,
+  }));
+  check('多影音版:3 份 YouTube 都被收下(沒有兩份上限)', roleScreen.n === 3, 'n=' + roleScreen.n);
+  check('多影音版:角色確認畫面依標題建議 Podcast / 影音 / 影音', JSON.stringify(roleScreen.roles) === JSON.stringify(['podcast', 'video', 'video']), JSON.stringify(roleScreen.roles));
+  check('多影音版:三份時「互換角色」按鈕隱藏、可按下一步', roleScreen.swapHidden && roleScreen.continueEnabled);
+  await page3.click('#btn-ytrole-continue'); await page3.waitForTimeout(600);
+  if (await page3.isVisible('#fuzzy-section')) { await page3.click('#btn-fuzzy-next'); await page3.waitForTimeout(600); }
+  if (await page3.isVisible('#orphan-section')) { await page3.click('#btn-final-generate'); await page3.waitForTimeout(600); }
+  await page3.waitForSelector('#report.active', { timeout: 5000 });
+  await page3.waitForTimeout(800);
+  const mv = await page3.evaluate(() => {
+    const m = state.merged;
+    const withAll = m.filter(d => ['apple', 'spotify', 'youtubePodcast'].every(p => d[p] !== null && d[p] > 0));
+    const sorted = withAll.map(d => d.apple + d.spotify + d.youtubePodcast).sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    const expectMedian = sorted.length % 2 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
+    return {
+      hasVideo: state.hasVideoSource,
+      videoRows: (state.ytVideoRows || []).length,
+      withVideo: m.filter(d => d.youtubeVideo !== null).length,
+      baseline: state.baselinePlatforms,
+      stateMedian: state.allTimeMedian, expectMedian, count: state.allTimeMedianCount, expectCount: withAll.length,
+      note: document.getElementById('match-summary').innerText.includes('不含影音版'),
+    };
+  });
+  check('多影音版:兩份影音版合併、同一影片 ID 只算一次(A 6 列 + B 7 列,其中 1 列與 A 同 ID → 12)', mv.hasVideo && mv.videoRows === 12, JSON.stringify({ videoRows: mv.videoRows }));
+  check('多影音版:影音版有掛回對應的單集', mv.withVideo >= 10, 'withVideo=' + mv.withVideo);
+  check('多影音版:中位數基準不含影音版(平台只有 Apple/Spotify/YouTube Podcast)', JSON.stringify(mv.baseline) === JSON.stringify(['apple', 'spotify', 'youtubePodcast']), JSON.stringify(mv.baseline));
+  check('多影音版:中位數 = 獨立重算的「不含影音版」中位數', mv.stateMedian === mv.expectMedian && mv.count === mv.expectCount, JSON.stringify(mv));
+  check('多影音版:橫排數字註明「不含影音版」', mv.note);
+  check('多影音版:全程無 JS 例外', errors3.length === 0, errors3.join('; '));
 
   await browser.close();
   console.log(failures.length === 0

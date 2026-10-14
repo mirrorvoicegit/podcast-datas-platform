@@ -240,7 +240,7 @@
     font-size: 14px;
   }
   .file-remove:hover { color: var(--accent); }
-  /* YouTube 角色確認卡片(上傳兩份 YouTube 檔時,系統建議角色但要求人工確認,見規格 FR-6) */
+  /* YouTube 角色確認卡片(上傳兩份以上 YouTube 檔時,系統建議角色但要求人工確認,見規格 FR-6) */
   .ytrole-cards {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -285,6 +285,7 @@
     color: var(--accent);
     margin: 8px 0;
   }
+  #ytrole-status.ok { color: var(--ink-soft); }
   /* 影音版欄位:沒有影音版資料時整欄隱藏,維持原本三來源版面(FR-14) */
   .yt-video-col { display: none; }
   #data-table.has-video-source .yt-video-col { display: table-cell; }
@@ -1167,7 +1168,7 @@
     <label class="upload-zone" id="dropzone-all">
       <div class="upload-icon">📥</div>
       <div class="upload-text">拖曳或點選上傳 CSV / ZIP 檔</div>
-      <div class="upload-hint">可一次選多個。系統自動辨識 Apple / Spotify / YouTube，不用自己分；YouTube 也可直接丟 Studio 匯出的 ZIP。若節目有影音版，可額外上傳第四個檔案(YouTube 影音版)；檔名若包含「影音」「影音版」「video」等字眼，系統會優先參考，但仍會請你確認一次。</div>
+      <div class="upload-hint">可一次選多個。系統自動辨識 Apple / Spotify / YouTube，不用自己分；YouTube 也可直接丟 Studio 匯出的 ZIP。若節目有影音版，可額外上傳 YouTube 影音版的檔案，<b>不限一份</b>(例如社會線上、鏡爆點各自的影音版播放清單，系統會合併成同一欄)。上傳兩份以上 YouTube 檔時，系統會參考檔名(如「影音」「video」)與標題(影音版標題通常和 Apple／Spotify 不同)給建議，但一定會請你確認一次。</div>
       <input type="file" accept=".csv,.zip" multiple id="file-all">
     </label>
 
@@ -1237,14 +1238,14 @@
     </div>
   </section>
 
-  <!-- YouTube 角色確認區(上傳兩份 YouTube 檔時才出現:哪份是 Podcast 版、哪份是影音版) -->
+  <!-- YouTube 角色確認區(上傳兩份以上 YouTube 檔時才出現:哪些是 Podcast 版、哪些是影音版) -->
   <section class="section no-print" id="ytrole-section" style="display:none;">
     <div class="section-label">
       <span>步驟一之二</span>
     </div>
-    <h2>確認:這兩份 YouTube 檔案分別是什麼?</h2>
+    <h2>確認:這些 YouTube 檔案分別是什麼?</h2>
     <p class="section-intro">
-      偵測到兩份 YouTube 資料。系統依檔名與集數做了建議判斷,但<strong>檔名不是可靠依據</strong>,請確認每份檔案的角色後再繼續。
+      偵測到兩份以上的 YouTube 資料。系統依檔名與標題(是否與 Apple／Spotify 標題逐字相同)做了建議判斷,但<strong>這些都只是建議</strong>,請確認每份檔案的角色後再繼續。同一種角色可以有多份(例如社會線上、鏡爆點各自的影音版),會合併成同一欄;至少要有一份 Podcast 版。
     </p>
 
     <div class="ytrole-cards" id="ytrole-cards"></div>
@@ -1501,7 +1502,7 @@
               <th class="num sortable" data-sort="youtubePodcast"><span class="th-label" id="th-yt-label">YouTube<br>至今收聽</span><i class="info-tip" data-tip="YouTube 的觀看次數。已排除時長低於門檻的 Shorts 短影音。">i</i></th>
               <th class="num sortable yt-video-col" data-sort="youtubeVideo"><span class="th-label">影音版<br>至今收看</span><i class="info-tip" data-tip="YouTube 影音版的觀看次數。已排除時長低於門檻的 Shorts 短影音。空白視為缺資料，不等於 0。">i</i></th>
               <th class="num sortable" data-sort="total"><span class="th-label" id="th-total-label">全平台<br>總計</span><i class="info-tip" id="th-total-tip" data-tip="三平台相加，參考用。三平台計算邏輯不同、同一人可能重複計算，不是精準總人次。">i</i></th>
-              <th class="cmp-cell"><span class="th-label">收聽中位數<br>比較</span><i class="info-tip" data-tip="該集全平台總計對比「開播至今單集中位數」的高低（紅↑高於中位數、綠↓低於中位數）。改用中位數而非平均，是因為單一爆款集會把平均拉高、讓其餘大多數集數都顯示「偏低」；中位數不受單一極端值影響。中位數只計入各上傳平台皆有數據的集數（數值空白或 0 都視為沒有數據）；缺任一平台數據的集數不參與比較，顯示 —。注意：越新的集數累積時間越短，低於中位數不代表表現差。">i</i></th>
+              <th class="cmp-cell"><span class="th-label">收聽中位數<br>比較</span><i class="info-tip" data-tip="該集全平台總計對比「開播至今單集中位數」的高低（紅↑高於中位數、綠↓低於中位數）。改用中位數而非平均，是因為單一爆款集會把平均拉高、讓其餘大多數集數都顯示「偏低」；中位數不受單一極端值影響。比較用的是 Apple＋Spotify＋YouTube Podcast 版的合計（不含 YouTube 影音版，因為影音版常常只有部分節目有，算進去會不公平）。中位數只計入各上傳平台皆有數據的集數（數值空白或 0 都視為沒有數據）；缺任一平台數據的集數不參與比較，顯示 —。注意：越新的集數累積時間越短，低於中位數不代表表現差。">i</i></th>
               <th>備註</th>
             </tr>
           </thead>

@@ -5,7 +5,7 @@
 const state = {
   apple: null,
   spotify: null,
-  ytFiles: [],   // 最多 2 筆:{id, originalName, zipName, csvNameInZip, rows, role, suggestedRole, confidence, reason}
+  ytFiles: [],   // YouTube 檔案不限份數(v18):{id, originalName, zipName, csvNameInZip, rows, role, suggestedRole, titleRole, confidence, reason}
   merged: null,
   sortBy: 'date',
   sortDir: 'desc',
@@ -339,11 +339,11 @@ async function handleMultipleFiles(files) {
       state[r.platform] = r.rows;
       state.fileInfo[r.platform] = { name: r.meta.zipName || r.meta.originalName, count: r.rows.length };
     } else if (r.platform === 'yt') {
-      if (state.ytFiles.length >= 2) {
-        errs.push({ name: r.meta.originalName, msg: '已有兩份 YouTube 資料,請先移除一份再上傳' });
+      const displayName = r.meta.zipName || r.meta.originalName;
+      if (state.ytFiles.some(f => (f.zipName || f.originalName) === displayName)) {
+        errs.push({ name: displayName, msg: '已上傳過同名的 YouTube 檔案' });
         return;
       }
-      const displayName = r.meta.zipName || r.meta.originalName;
       const suggestion = detectYtRoleFromFilename(displayName);
       state.ytFiles.push({
         id: 'yt' + (++ytFileSeq),
@@ -539,7 +539,7 @@ document.getElementById('btn-back').addEventListener('click', () => {
 });
 
 function startGenerateFlow() {
-  if (state.ytFiles.length === 2) {
+  if (state.ytFiles.length >= 2) {
     enterYtRoleReview();
   } else {
     resolveYtSources();
@@ -547,19 +547,41 @@ function startGenerateFlow() {
   }
 }
 
+// 同一個角色可以有多份檔案(v18):例如新聞鏡來聽的「社會線上影音版」「鏡爆點影音版」
+// 各自是獨立的播放清單、分開匯出,這裡合併成同一欄。同一支影片(影片 ID 相同)只算一次,
+// 避免兩份匯出有重疊時重複計算;沒有影片 ID 的列一律保留。
+function mergeYtRows(files) {
+  const seen = new Set();
+  const out = [];
+  files.forEach(f => f.rows.forEach(r => {
+    if (r.videoId) {
+      if (seen.has(r.videoId)) return;
+      seen.add(r.videoId);
+    }
+    out.push(r);
+  }));
+  return out;
+}
+
 // 依 state.ytFiles[].role 決定本次是否有雙來源(FR-13)。
 // 只有 1 份 YouTube 資料時,完全比照舊行為,只是內部欄位改名為 youtubePodcast。
+// 角色確認後若只剩 1 份有效檔案,不管選的是哪種角色都當成唯一的 YouTube 來源(Podcast 欄)。
 function resolveYtSources() {
   const files = state.ytFiles;
   let podcastRows = null, videoRows = null;
 
   if (files.length === 1) {
     podcastRows = files[0].rows;
-  } else if (files.length === 2) {
-    const podcastFile = files.find(f => f.role === 'podcast');
-    const videoFile = files.find(f => f.role === 'video');
-    podcastRows = podcastFile ? podcastFile.rows : null;
-    videoRows = videoFile ? videoFile.rows : null;
+  } else if (files.length >= 2) {
+    const active = files.filter(f => f.role && f.role !== 'ignore');
+    if (active.length === 1) {
+      podcastRows = active[0].rows;
+    } else {
+      const podcastFiles = active.filter(f => f.role === 'podcast');
+      const videoFiles = active.filter(f => f.role === 'video');
+      podcastRows = podcastFiles.length ? mergeYtRows(podcastFiles) : null;
+      videoRows = videoFiles.length ? mergeYtRows(videoFiles) : null;
+    }
   }
 
   state.hasVideoSource = !!(podcastRows && videoRows);
@@ -570,39 +592,71 @@ function resolveYtSources() {
 // ============================================================
 // 3.5 YouTube 角色確認(FR-5/FR-6)
 // ============================================================
-function countEpMatches(rowsA, rowsB) {
-  const bKeys = new Set(rowsB.filter(r => r.epFound).map(r => r.epKey));
-  const seen = new Set();
-  let n = 0;
-  rowsA.filter(r => r.epFound).forEach(r => {
-    if (bKeys.has(r.epKey) && !seen.has(r.epKey)) { n++; seen.add(r.epKey); }
-  });
-  return n;
+// 用內容判斷角色(v18,凍牙提出的規則):影音版的標題通常跟 Apple/Spotify 的標題不同
+// (節目名稱與集數【…】擺的位置不一樣),Podcast 版上傳到 YouTube 則通常與 Apple/Spotify
+// 標題逐字相同。所以比對「這份檔案有多少影片標題與 Apple/Spotify 標題逐字相同」:
+// 比例高 → 建議 Podcast 版,比例低 → 建議影音版。
+// 這只是「建議」,不是判定:不需要認識任何節目的排版習慣,但早期集數兩版標題常常一樣,
+// 所以比例落在中間或兩份都很高時不給建議,留給人決定。
+function exactTitleStats(rows) {
+  const titles = new Set([...(state.apple || []), ...(state.spotify || [])].map(r => r.title));
+  const total = rows.length;
+  const exact = rows.filter(r => titles.has(r.title)).length;
+  return { exact, total, ratio: total ? exact / total : 0, hasRef: titles.size > 0 };
 }
 
-// FR-6 優先順序:檔名關鍵字建議(第3順位)>推定另一份的相反角色 > 都不確定則不預選,強制使用者指定。
-function assignDefaultYtRoles(files) {
-  const [a, b] = files;
-  const aHit = a.suggestedRole, bHit = b.suggestedRole;
+function suggestYtRoleByTitle(rows) {
+  const st = exactTitleStats(rows);
+  if (!st.hasRef || st.total === 0) return { role: null, reason: null, stats: st };
+  if (st.ratio >= 0.8) {
+    return { role: 'podcast', stats: st, reason: `標題有 ${st.exact}/${st.total} 支與 Apple／Spotify 逐字相同,推測為 Podcast 版` };
+  }
+  if (st.ratio <= 0.3) {
+    return { role: 'video', stats: st, reason: `只有 ${st.exact}/${st.total} 支標題與 Apple／Spotify 逐字相同(影音版的節目名與集數位置通常不同),推測為影音版` };
+  }
+  return { role: null, stats: st, reason: `標題有 ${st.exact}/${st.total} 支與 Apple／Spotify 逐字相同,比例落在中間,無法判斷` };
+}
 
-  if (aHit && bHit && aHit !== bHit) {
-    a.role = aHit; b.role = bHit;
+// FR-6 優先順序:檔名關鍵字建議 > 標題內容建議 > 兩者都沒有就不預選,強制使用者指定。
+// v18 起 YouTube 檔案不限兩份,所以不再只做「推定另一份是相反角色」,而是:
+// 恰好一份被建議為 Podcast 版時,其餘沒有建議的才推定為影音版;
+// 兩份以上都被建議為 Podcast 版、或檔名與標題的建議互相矛盾,一律不預選。
+function assignDefaultYtRoles(files) {
+  files.forEach(f => {
+    const t = suggestYtRoleByTitle(f.rows);
+    f.titleRole = t.role;
+    f.titleStats = t.stats;
+    if (f.suggestedRole && t.role && f.suggestedRole !== t.role) {
+      f.sug = null;
+      f.reason = `檔名建議${f.suggestedRole === 'video' ? '影音版' : 'Podcast 版'},但標題比對建議${t.role === 'video' ? '影音版' : 'Podcast 版'},兩者矛盾,請自行指定`;
+    } else {
+      f.sug = f.suggestedRole || t.role || null;
+      if (!f.suggestedRole) f.reason = t.reason;
+    }
+  });
+
+  const podSug = files.filter(f => f.sug === 'podcast');
+  if (podSug.length === 1) {
+    files.forEach(f => {
+      if (f.sug) { f.role = f.sug; return; }
+      f.role = 'video';
+      f.reason = (f.reason ? f.reason + ';' : '') + '另一份已被建議為 Podcast 版,此份依此推定為影音版';
+    });
     return;
   }
-  if (aHit && !bHit) {
-    a.role = aHit; b.role = aHit === 'video' ? 'podcast' : 'video';
-    if (!b.reason) b.reason = '未偵測到檔名關鍵字,依另一份檔案推定為相反角色';
+  if (podSug.length === 0 && files.length === 2 && files.some(f => f.sug === 'video')) {
+    files.forEach(f => {
+      if (f.sug) { f.role = f.sug; return; }
+      f.role = 'podcast';
+      f.reason = (f.reason ? f.reason + ';' : '') + '另一份已被建議為影音版,此份依此推定為 Podcast 版';
+    });
     return;
   }
-  if (bHit && !aHit) {
-    b.role = bHit; a.role = bHit === 'video' ? 'podcast' : 'video';
-    if (!a.reason) a.reason = '未偵測到檔名關鍵字,依另一份檔案推定為相反角色';
-    return;
-  }
-  // 兩邊建議相同(衝突)或都沒有建議:不自動指派
-  a.role = null; b.role = null;
-  if (!a.reason) a.reason = '系統無法從檔案內容可靠判斷兩份 YouTube 資料的版本,請指定後繼續。';
-  if (!b.reason) b.reason = '系統無法從檔案內容可靠判斷兩份 YouTube 資料的版本,請指定後繼續。';
+  files.forEach(f => {
+    f.role = null;
+    if (!f.reason) f.reason = '系統無法從檔案內容可靠判斷版本,請自行指定。';
+    if (podSug.length > 1 && f.sug === 'podcast') f.reason += `;但有 ${podSug.length} 份都像 Podcast 版,請自行指定`;
+  });
 }
 
 function enterYtRoleReview() {
@@ -616,15 +670,16 @@ function enterYtRoleReview() {
 
 function renderYtRoleSection(files) {
   const wrap = document.getElementById('ytrole-cards');
-  const matchPreview = countEpMatches(files[0].rows, files[1].rows);
 
   wrap.innerHTML = files.map((f, idx) => {
     const displayName = f.zipName || f.originalName;
     const reasonText = f.reason || '尚未判斷';
+    const st = f.titleStats || exactTitleStats(f.rows);
+    const refNote = st.hasRef ? ` · 標題與 Apple／Spotify 逐字相同 ${st.exact} 集` : '';
     return `
       <div class="ytrole-card">
         <div class="ytrole-filename" title="${escapeAttr(displayName)}">${escapeHtml(displayName)}</div>
-        <div class="ytrole-meta">${f.rows.length} 集 · 依 EP 編號可配對約 ${matchPreview} 集</div>
+        <div class="ytrole-meta">${f.rows.length} 集${refNote}</div>
         <div class="ytrole-reason">${escapeHtml(reasonText)}</div>
         <select class="ytrole-select" data-idx="${idx}">
           <option value="" ${!f.role ? 'selected' : ''}>請選擇…</option>
@@ -644,6 +699,10 @@ function renderYtRoleSection(files) {
     });
   });
 
+  // 「互換角色」只對剛好兩份有意義;三份以上直接用下拉選單改
+  const swapBtn = document.getElementById('btn-ytrole-swap');
+  if (swapBtn) swapBtn.style.display = files.length === 2 ? '' : 'none';
+
   updateYtRoleStatus();
 }
 
@@ -652,19 +711,32 @@ function updateYtRoleStatus() {
   const statusEl = document.getElementById('ytrole-status');
   const btn = document.getElementById('btn-ytrole-continue');
   const roles = files.map(f => f.role);
+  statusEl.classList.remove('ok');
 
   if (roles.includes(null) || roles.includes(undefined)) {
-    statusEl.textContent = '請為兩份檔案分別選擇角色(或忽略)後繼續。';
+    statusEl.textContent = '請為每份檔案選擇角色(或忽略)後繼續。';
     btn.disabled = true;
     return;
   }
-  const active = roles.filter(r => r !== 'ignore');
-  if (active.length === 2 && active[0] === active[1]) {
-    statusEl.textContent = '兩份檔案不能指定成相同角色,請重新選擇。';
+  const active = files.filter(f => f.role !== 'ignore');
+  if (active.length === 0) {
+    statusEl.textContent = '至少要保留一份 YouTube 檔案。';
     btn.disabled = true;
     return;
   }
-  statusEl.textContent = '';
+  const podcastCount = active.filter(f => f.role === 'podcast').length;
+  const videoCount = active.filter(f => f.role === 'video').length;
+  if (active.length >= 2 && podcastCount === 0) {
+    statusEl.textContent = '請至少指定一份為 YouTube Podcast 版(影音版是補充來源,要有 Podcast 版才能對照)。';
+    btn.disabled = true;
+    return;
+  }
+  const notes = [];
+  if (videoCount >= 2) notes.push(`${videoCount} 份影音版會合併成同一欄`);
+  if (podcastCount >= 2) notes.push(`${podcastCount} 份 Podcast 版會合併成同一欄`);
+  if (notes.length) notes.push('同一支影片(影片 ID 相同)只算一次');
+  statusEl.textContent = notes.join(',');
+  statusEl.classList.add('ok');   // 這是說明、不是錯誤,不要用紅字
   btn.disabled = false;
 }
 
@@ -1092,6 +1164,14 @@ function hasPlays(v) {
   return v !== null && v !== undefined && v > 0;
 }
 
+// 「收聽中位數比較」的比較基準(v18,凍牙拍板:影音版不加進去):
+// 只看 Apple + Spotify + YouTube Podcast 版,不含影音版。原因:影音版常常只有部分節目／部分集數有
+// (例如新聞鏡來聽只有社會線上、鏡爆點有各自的影音版播放清單),若把影音版算進去,有影音版的集數
+// 總計天生比較高、沒有的整個節目還會被排除在基準外,比較就不公平。表格的「全來源總計」欄仍然含影音版。
+function baseTotal(d) {
+  return (d.apple || 0) + (d.spotify || 0) + (d.youtubePodcast || 0);
+}
+
 // 中位數:排序後取正中間(偶數筆取中間兩筆平均),不受單一爆款集拉高影響,
 // 這是「開播至今單集中位數」與節目觀察爆款判斷共用的基準(改自舊版的算術平均)。
 function median(nums) {
@@ -1130,6 +1210,16 @@ function escapeAttr(s) { return String(s || '').replace(/"/g, '&quot;'); }
 // 查證確認 Apple/Spotify/YouTube 四個來源的日期都可能有 ±1 天誤差,沒有一個天生準,
 // 沒理由讓 Apple 跟其他來源不同待遇)。「上線日」欄位旁邊有已知誤差的提示文字,
 // 見 renderTable 表頭。
+// 兩列標題 key 相同(同標題的重複上傳、或標題前 15 字剛好撞在一起)時,數字取較大值,
+// 不再是「後面的蓋掉前面的」(YouTube 匯出依觀看數由大到小排,後面的小數字會把大數字蓋掉,
+// 實測某節目有 8 集因此少了 4,549 次觀看)。凍牙拍板:取大值。並在 entry._dup 留記號,
+// 讓報表可以標出「這幾集有同標題重複、已取較大值」。
+function maxNullable(a, b) {
+  if (a === null || a === undefined) return b === undefined ? null : b;
+  if (b === null || b === undefined) return a;
+  return Math.max(a, b);
+}
+
 function mergeFirstPass(apple, spotify, yt) {
   [apple, spotify, yt].forEach(arr => arr.forEach(item => {
     item.tokens = titleTokens(item.title);
@@ -1153,7 +1243,10 @@ function mergeFirstPass(apple, spotify, yt) {
         });
       }
       const entry = map.get(key);
-      entry[platform] = item.plays;
+      entry._seen = entry._seen || {};
+      if (entry._seen[platform]) entry._dup = true;
+      entry._seen[platform] = true;
+      entry[platform] = maxNullable(entry[platform], item.plays);
       if (platform === 'apple') {
         entry.title = item.title;
         entry.releaseDate = item.releaseDate;
@@ -1184,8 +1277,11 @@ function mergeFirstPass(apple, spotify, yt) {
       });
     }
     const entry = map.get(key);
-    entry.youtubePodcast = item.youtubePodcast;
-    entry.youtubeVideo = item.youtubeVideo;
+    entry._seen = entry._seen || {};
+    if (entry._seen.yt) entry._dup = true;
+    entry._seen.yt = true;
+    entry.youtubePodcast = maxNullable(entry.youtubePodcast, item.youtubePodcast);
+    entry.youtubeVideo = maxNullable(entry.youtubeVideo, item.youtubeVideo);
     if (item.ytVideoOriginalTitle) entry._ytVideoOriginalTitle = item.ytVideoOriginalTitle;
   });
 
@@ -1322,8 +1418,9 @@ function renderReport(showName, data) {
   if (state.ytPodcastRows && state.ytPodcastRows.length > 0) uploadedPlatforms.push('youtubePodcast');
   if (state.hasVideoSource && state.ytVideoRows && state.ytVideoRows.length > 0) uploadedPlatforms.push('youtubeVideo');
 
-  const completeRows = allMergedReviewed.filter(d => uploadedPlatforms.every(p => hasPlays(d[p])));
-  state.allTimeMedian = median(completeRows.map(d => rowTotal(d)));
+  const baselinePlatforms = uploadedPlatforms.filter(p => p !== 'youtubeVideo');
+  const completeRows = allMergedReviewed.filter(d => baselinePlatforms.every(p => hasPlays(d[p])));
+  state.allTimeMedian = median(completeRows.map(d => baseTotal(d)));
   state.allTimeMedianCount = completeRows.length;
   // v17:記下中位數母體實際涵蓋的上架日範圍,畫面與 CSV 都標出來,讓人看得出基準是怎麼算的
   // (母體只有幾集、起點是哪天,一眼就能發現匯出區間不對之類的問題)。完全由資料算出,不需設定。
@@ -1331,6 +1428,7 @@ function renderReport(showName, data) {
   state.allTimeMedianFrom = medianDates.length ? medianDates[0] : null;
   state.allTimeMedianTo = medianDates.length ? medianDates[medianDates.length - 1] : null;
   state.uploadedPlatforms = uploadedPlatforms;
+  state.baselinePlatforms = baselinePlatforms;
 
   state.allTimeTop10 = [...allMergedReviewed]
     .sort((a, b) => rowTotal(b) - rowTotal(a))
@@ -1487,6 +1585,7 @@ function renderMatchSummary(data) {
   const ytPodcast = data.filter(d => d.youtubePodcast !== null).length;
   const ytVideo = data.filter(d => d.youtubeVideo !== null).length;
   const fuzzy = data.filter(d => d._fuzzyMatched).length;
+  const dupCount = data.filter(d => d._dup).length;
 
   let html = `
     <div class="match-stat"><span>${hasVideo ? '四來源都有' : '三平台都有'}</span><strong>${allComplete}</strong></div>
@@ -1499,7 +1598,8 @@ function renderMatchSummary(data) {
   html += `
     <div class="match-stat"><span>單集總數</span><strong>${data.length}</strong></div>
     ${fuzzy > 0 ? `<div class="match-stat"><span>後備比對成功</span><strong>${fuzzy}</strong></div>` : ''}
-    <div class="match-stat"><span>開播至今單集中位數</span><strong>${state.allTimeMedianCount > 0 ? num(state.allTimeMedian) : '—'}</strong><em class="match-note">${state.allTimeMedianCount > 0 ? `${formatDate(state.allTimeMedianFrom)} 起・共 ${num(state.allTimeMedianCount)} 集` : '沒有各平台都有數據的集數'}</em></div>
+    ${dupCount > 0 ? `<div class="match-stat"><span>同標題重複</span><strong>${dupCount}</strong><em class="match-note">數字已取較大值</em></div>` : ''}
+    <div class="match-stat"><span>開播至今單集中位數</span><strong>${state.allTimeMedianCount > 0 ? num(state.allTimeMedian) : '—'}</strong><em class="match-note">${state.allTimeMedianCount > 0 ? `${formatDate(state.allTimeMedianFrom)} 起・共 ${num(state.allTimeMedianCount)} 集${state.hasVideoSource ? '・不含影音版' : ''}` : '沒有各平台都有數據的集數'}</em></div>
   `;
   document.getElementById('match-summary').innerHTML = html;
 }
@@ -1684,13 +1784,14 @@ function renderCharts(data) {
 // 缺任一已上傳來源數據的集數不參與比較(顯示 —),因為它的總計天生偏低,比了不公平。
 function cmpToMedianHtml(d) {
   const med = state.allTimeMedian || 0;
-  const platforms = state.uploadedPlatforms || [];
+  const platforms = state.baselinePlatforms || [];
   if (!med || platforms.length === 0) return '—';
   const complete = platforms.every(p => hasPlays(d[p]));
   if (!complete) return '—';
-  const diffPct = ((d.total - med) / med) * 100;
-  if (d.total > med) return `<span class="cmp-avg up">▲ +${diffPct.toFixed(0)}%</span>`;
-  if (d.total < med) return `<span class="cmp-avg down">▼ ${diffPct.toFixed(0)}%</span>`;
+  const bt = baseTotal(d);
+  const diffPct = ((bt - med) / med) * 100;
+  if (bt > med) return `<span class="cmp-avg up">▲ +${diffPct.toFixed(0)}%</span>`;
+  if (bt < med) return `<span class="cmp-avg down">▼ ${diffPct.toFixed(0)}%</span>`;
   return '<span class="cmp-avg">持平</span>';
 }
 function renderTable(allData) {
@@ -1857,13 +1958,14 @@ function isoDateStr(d) {
 // 跟 cmpToMedianHtml 同一套判斷邏輯,只是回傳給 CSV 用的純文字(不帶 HTML/箭頭符號)。
 function cmpToMedianText(d) {
   const med = state.allTimeMedian || 0;
-  const platforms = state.uploadedPlatforms || [];
+  const platforms = state.baselinePlatforms || [];
   if (!med || platforms.length === 0) return '';
   const complete = platforms.every(p => hasPlays(d[p]));
   if (!complete) return '';
-  const diffPct = ((d.total - med) / med) * 100;
-  if (d.total > med) return `+${diffPct.toFixed(0)}%`;
-  if (d.total < med) return `${diffPct.toFixed(0)}%`;
+  const bt = baseTotal(d);
+  const diffPct = ((bt - med) / med) * 100;
+  if (bt > med) return `+${diffPct.toFixed(0)}%`;
+  if (bt < med) return `${diffPct.toFixed(0)}%`;
   return '持平';
 }
 
@@ -1906,7 +2008,7 @@ function exportCSV() {
   // 「收聽中位數比較」欄的基準是怎麼算的(節目層級的說明,不塞進逐集表格,做法同下方訂閱數)。
   if (state.allTimeMedianCount > 0) {
     csvLines.push('');
-    csvLines.push(['收聽中位數比較的基準(開播至今單集中位數,只計入各上傳平台都有數據的集數)'].map(csvEscape).join(','));
+    csvLines.push([`收聽中位數比較的基準(開播至今單集中位數,只計入各上傳平台都有數據的集數${state.hasVideoSource ? ',不含影音版' : ''})`].map(csvEscape).join(','));
     csvLines.push(['項目', '值'].map(csvEscape).join(','));
     csvLines.push(['中位數', state.allTimeMedian].map(csvEscape).join(','));
     csvLines.push(['計算起日', isoDateStr(state.allTimeMedianFrom)].map(csvEscape).join(','));
@@ -1996,8 +2098,9 @@ async function exportStandaloneHTML() {
     ytVideoOriginalTitle: hasVideo ? (d._ytVideoOriginalTitle || null) : null,
     recentWeek: _isRecentWeek(d.dateObj),
     note: (state.notes[d._key] || '').trim() || null,
-    complete: (state.uploadedPlatforms || []).length > 0 &&
-      state.uploadedPlatforms.every(p => hasPlays(d[p])),
+    baseTotal: baseTotal(d),
+    complete: (state.baselinePlatforms || []).length > 0 &&
+      state.baselinePlatforms.every(p => hasPlays(d[p])),
   }));
 
   const alltimeToEmbed = {
@@ -2138,9 +2241,9 @@ function escapeAttr(s) { return String(s || '').replace(/"/g, '&quot;'); }
 
 function cmpToMedianHtml(d) {
   if (!ALLTIME.median || !d.complete) return '—';
-  const diffPct = ((d.total - ALLTIME.median) / ALLTIME.median) * 100;
-  if (d.total > ALLTIME.median) return '<span class="cmp-avg up">▲ +' + diffPct.toFixed(0) + '%</span>';
-  if (d.total < ALLTIME.median) return '<span class="cmp-avg down">▼ ' + diffPct.toFixed(0) + '%</span>';
+  const diffPct = ((d.baseTotal - ALLTIME.median) / ALLTIME.median) * 100;
+  if (d.baseTotal > ALLTIME.median) return '<span class="cmp-avg up">▲ +' + diffPct.toFixed(0) + '%</span>';
+  if (d.baseTotal < ALLTIME.median) return '<span class="cmp-avg down">▼ ' + diffPct.toFixed(0) + '%</span>';
   return '<span class="cmp-avg">持平</span>';
 }
 
