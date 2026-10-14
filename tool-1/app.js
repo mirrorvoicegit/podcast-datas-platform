@@ -1325,6 +1325,11 @@ function renderReport(showName, data) {
   const completeRows = allMergedReviewed.filter(d => uploadedPlatforms.every(p => hasPlays(d[p])));
   state.allTimeMedian = median(completeRows.map(d => rowTotal(d)));
   state.allTimeMedianCount = completeRows.length;
+  // v17:記下中位數母體實際涵蓋的上架日範圍,畫面與 CSV 都標出來,讓人看得出基準是怎麼算的
+  // (母體只有幾集、起點是哪天,一眼就能發現匯出區間不對之類的問題)。完全由資料算出,不需設定。
+  const medianDates = completeRows.map(d => d.dateObj).filter(Boolean).sort((a, b) => a - b);
+  state.allTimeMedianFrom = medianDates.length ? medianDates[0] : null;
+  state.allTimeMedianTo = medianDates.length ? medianDates[medianDates.length - 1] : null;
   state.uploadedPlatforms = uploadedPlatforms;
 
   state.allTimeTop10 = [...allMergedReviewed]
@@ -1494,7 +1499,7 @@ function renderMatchSummary(data) {
   html += `
     <div class="match-stat"><span>單集總數</span><strong>${data.length}</strong></div>
     ${fuzzy > 0 ? `<div class="match-stat"><span>後備比對成功</span><strong>${fuzzy}</strong></div>` : ''}
-    <div class="match-stat"><span>開播至今單集中位數</span><strong>${num(state.allTimeMedian)}</strong></div>
+    <div class="match-stat"><span>開播至今單集中位數</span><strong>${state.allTimeMedianCount > 0 ? num(state.allTimeMedian) : '—'}</strong><em class="match-note">${state.allTimeMedianCount > 0 ? `${formatDate(state.allTimeMedianFrom)} 起・共 ${num(state.allTimeMedianCount)} 集` : '沒有各平台都有數據的集數'}</em></div>
   `;
   document.getElementById('match-summary').innerHTML = html;
 }
@@ -1897,6 +1902,17 @@ function exportCSV() {
   });
 
   const csvLines = [headers, ...rows].map(row => row.map(csvEscape).join(','));
+
+  // 「收聽中位數比較」欄的基準是怎麼算的(節目層級的說明,不塞進逐集表格,做法同下方訂閱數)。
+  if (state.allTimeMedianCount > 0) {
+    csvLines.push('');
+    csvLines.push(['收聽中位數比較的基準(開播至今單集中位數,只計入各上傳平台都有數據的集數)'].map(csvEscape).join(','));
+    csvLines.push(['項目', '值'].map(csvEscape).join(','));
+    csvLines.push(['中位數', state.allTimeMedian].map(csvEscape).join(','));
+    csvLines.push(['計算起日', isoDateStr(state.allTimeMedianFrom)].map(csvEscape).join(','));
+    csvLines.push(['計算迄日', isoDateStr(state.allTimeMedianTo)].map(csvEscape).join(','));
+    csvLines.push(['計算集數', state.allTimeMedianCount].map(csvEscape).join(','));
+  }
 
   // 訂閱數是節目層級的單一數字(使用者手動填、存 localStorage),不是逐集資料,
   // 不能塞進表格主體讓每一列重複顯示同一個數字(語意上會誤導成「這一集的訂閱數」)。

@@ -74,6 +74,7 @@ function assertReport(r, label) {
   check(`${label}:圖例填色都是合法色碼`, badFill.length === 0, badFill.map(i => i.text + '=' + i.fill).join(', '));
   check(`${label}:開播至今 TOP10 圖有 10 筆`, r.alltimeLabels === 10, 'labels=' + r.alltimeLabels);
   check(`${label}:橫排數字有開播至今單集中位數`, r.matchSummaryText.includes('開播至今單集中位數'));
+  check(`${label}:中位數旁標出計算範圍(起日・集數)`, /\d{4}\/\d{2}\/\d{2} 起・共 \d+ 集/.test(r.matchSummaryText), (r.matchSummaryText.match(/\d{4}\/\d{2}\/\d{2} 起・共 \d+ 集/) || ['(沒有)'])[0]);
   // v16 新增影音版欄(th 恆在、無影音版資料時該欄 CSS 隱藏且不產生 td),故表頭 9 欄、資料列仍 8 格
   check(`${label}:表頭 9 欄、資料列 8 格(無影音版時)`, r.headerCount === 9 && r.rowCells === 8, `th=${r.headerCount} td=${r.rowCells}`);
   check(`${label}:比較欄有紅升也有綠降`, r.cmpUp > 0 && r.cmpDown > 0, `up=${r.cmpUp} down=${r.cmpDown}`);
@@ -102,11 +103,13 @@ function assertReport(r, label) {
     const byNum = n => state.merged.find(d => d.title.startsWith(`第${n}集`));
     const e9 = byNum(9), e10 = byNum(10);
     return { crossMedian, stateMedian: state.allTimeMedian,
+      noteCount: (document.getElementById('match-summary').innerText.match(/共 (\d+) 集/) || [])[1] === String(state.allTimeMedianCount),
       blankIsNull: e9 && e9.apple === null,          // 第 9 集 Apple 空白 → 缺資料,不是 0
       zeroStaysZero: e10 && e10.apple === 0,         // 第 10 集 Apple 明確 0 → 保留 0
       blankExcluded: complete.every(d => !d.title.startsWith('第9集') && !d.title.startsWith('第10集')) };
   });
   check('畫面版:單集中位數交叉驗證一致', cross.crossMedian === cross.stateMedian, JSON.stringify(cross));
+  check('畫面版:中位數旁標的集數 = 實際母體集數', cross.noteCount);
   check('畫面版:Apple 空白視為缺資料(null),不是 0', cross.blankIsNull);
   check('畫面版:Apple 明確 0 保留為 0、但與空白一樣不進中位數基準', cross.zeroStaysZero && cross.blankExcluded);
 
