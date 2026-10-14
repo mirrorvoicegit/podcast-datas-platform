@@ -1478,8 +1478,8 @@ function applyVideoSourceUI() {
   const totalTip = document.getElementById('th-total-tip');
   if (totalTip) {
     totalTip.setAttribute('data-tip', state.hasVideoSource
-      ? '把各平台的「收聽次數」加起來。同一人聽幾次就算幾次，不是人數，只適合看量級。'
-      : '把各平台的「收聽次數」加起來。同一人聽幾次就算幾次，不是人數，只適合看量級。');
+      ? '把各平台的「收聽次數」加起來，同一人聽幾次就算幾次，不是人數，只適合看量級。'
+      : '把各平台的「收聽次數」加起來，同一人聽幾次就算幾次，不是人數，只適合看量級。');
   }
 
   const shortsNote = document.getElementById('shorts-excluded-note');
