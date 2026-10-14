@@ -1478,8 +1478,8 @@ function applyVideoSourceUI() {
   const totalTip = document.getElementById('th-total-tip');
   if (totalTip) {
     totalTip.setAttribute('data-tip', state.hasVideoSource
-      ? 'Apple、Spotify、YouTube Podcast 版與影音版的收聽「次數」相加，不是人數；同一人重複收聽會重複計入。各來源計次標準不同，僅供看量級。'
-      : '三平台的收聽「次數」相加（Apple Plays、Spotify plays、YouTube 觀看次數），不是人數；同一人重複收聽會重複計入。各平台計次標準不同，僅供看量級。');
+      ? '把各平台的「收聽次數」加起來。同一人聽幾次就算幾次，不是人數，只適合看量級。'
+      : '把各平台的「收聽次數」加起來。同一人聽幾次就算幾次，不是人數，只適合看量級。');
   }
 
   const shortsNote = document.getElementById('shorts-excluded-note');
