@@ -7,7 +7,8 @@
 ## 平台共用（index.html）
 
 ### 2026.11.17
-- 將工具箱首頁與 Tool-1、Tool-2 頁尾署名統一為「Ryuushouin Touga」；公開聯絡信箱尚未確認，先提供 gogowildnotes.com 聯絡網站連結，避免誤植私人 Email。未改動分析邏輯或版本號。
+- 頁尾聯絡方式改為可直接寄信的 `fywgogowild@gmail.com`，移除原先的個人網站連結；同步 README 與兩份維護指南，保留署名 Ryuushouin Touga。
+- 將工具箱首頁與 Tool-1、Tool-2 頁尾署名統一為「Ryuushouin Touga」；公開聯絡信箱尚未確認，當時先提供網站連結，避免誤植私人 Email。未改動分析邏輯或版本號。
 - Playmark 卡片新增「正式版」標示，改名「Playmark｜審聽神器」，強調邊播放邊記筆記、插入時間碼回找重點與 YouTube 學習用途。
 - 首頁頁尾新增「工具箱企劃與維護｜吳芳怡」署名，英文識別文字由 PODCAST ANALYTICS 改為 PODCAST TOOLBOX；不涉及原有分析功能與版本號。
 - 新增 EditCue、Playmark 兩張卡片，包含功能與用途說明，分別連到獨立 GitHub Pages 網站及 Chrome 線上應用程式商店。
