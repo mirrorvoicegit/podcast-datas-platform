@@ -6,9 +6,10 @@
 
 - **RSS節目收聽分析**（`tool-1/`）：分析節目在 Apple Podcast、Spotify、YouTube 的收聽表現；YouTube 若有影音版，可額外上傳第 4 個來源分開統計。
 - **鏡好聽平台收聽分析**（`tool-2/`）：分析鏡好聽 App 每週收聽 log。
-- **Podcast 報獎雷達**（外部網站）：追蹤 Podcast 相關獎項資訊。
+- **Podcast 報獎雷達**（Beta，外部網站）：追蹤已查證的 Podcast 獎項資訊、徵件日曆與截止日期。
 - **EditCue**（外部網站）：逐字稿與初剪核對、後製需求標註及剪輯包匯出。
 - **Playmark｜審聽神器**（正式版，Chrome 擴充功能）：播放 Google 雲端硬碟的音檔、影片並記錄附時間碼的審聽筆記，也可搭配 YouTube 影片作學習筆記。
+- **Apple Podcasts 封面轉換器**（Gemini 外部連結）：協助節目封面的轉換處理。連結：https://gemini.google.com/share/c101facb2d8f
 
 ## 使用方式
 
