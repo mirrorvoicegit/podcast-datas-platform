@@ -11,10 +11,10 @@
 
 ## 一、這個專案是什麼
 
-鏡好聽（Mirror Voice）節目組的內部數據分析工具，**純前端**（HTML/CSS/JS，無框架、無伺服器、無資料庫），雙擊 HTML 或開 GitHub Pages 網址即可使用。所有資料在使用者瀏覽器本機處理，**任何收聽資料都不會離開使用者的電腦**。
+鏡好聽（Mirror Voice）節目組的工具箱入口。此 repo 內建兩款收聽分析工具，**純前端**（HTML/CSS/JS，無框架、無伺服器、無資料庫），雙擊 HTML 或開 GitHub Pages 網址即可使用；這兩款分析工具的資料在瀏覽器本機處理，**任何收聽資料都不會離開使用者的電腦**。
 
 ```
-index.html          入口頁（工具清單）
+index.html          入口頁（內建分析工具與外部工具連結）
 tool-1/             RSS節目收聽分析（Apple/Spotify/YouTube 三平台 CSV）
   index.html        畫面 + 全部 CSS
   app.js            全部邏輯（含匯出用的內嵌副本，見地雷區）
@@ -26,6 +26,8 @@ dev/                自動驗證配備（給維護的 AI 用，非工具本體�
 ```
 
 技術：原生 JS、Chart.js（匯出時 inline）、PapaParse（CSV）、JSZip（Tool-1 起，瀏覽器內解壓 YouTube Studio 匯出 ZIP，不上傳檔案）、SheetJS（xlsx）、localStorage（記憶欄位）。
+
+**首頁外部工具：** `index.html` 另外連結 Podcast 報獎雷達（`mirrorvoicegit/podcast-awards`）、EditCue（`mirrorvoicegit/editcue`）與 Playmark（Chrome 線上應用程式商店）。這三款工具各自維護；本專案的「收聽資料在本機處理、不上傳伺服器」保證只適用於 `tool-1/` 和 `tool-2/`，不能套用到外部工具。修改首頁時請保留這項區別。
 
 ---
 
