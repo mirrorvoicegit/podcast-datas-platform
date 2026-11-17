@@ -14,7 +14,7 @@
 
 開啟 `index.html`（或部署後的網址）即可選擇工具。Playmark 需從 Chrome 線上應用程式商店安裝，其餘工具由連結開啟。
 
-工具箱首頁與兩款內建分析頁面統一署名：工具企劃與維護｜Ryuushouin Touga。聯絡方式暫連結至 https://gogowildnotes.com/，待取得網站所用公開聯絡信箱後再加上 email。
+工具箱首頁與兩款內建分析頁面統一署名：工具企劃與維護｜Ryuushouin Touga。聯絡方式為 `fywgogowild@gmail.com`，在網站頁尾使用 `mailto:` 連結；不放個人網站。
 
 ## 給維護者 / AI
 
