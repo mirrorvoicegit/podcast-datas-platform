@@ -90,6 +90,19 @@
     letter-spacing: -0.03em;
     line-height: 1.05;
   }
+  .masthead-intro {
+    margin: 18px auto 0;
+    max-width: 640px;
+    color: var(--ink-soft);
+    font-size: 14px;
+  }
+  .section-heading {
+    margin: 0 0 14px;
+    color: var(--ink-soft);
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
 
   /* 工具卡片:三張同排,才能逐列對齊 */
   .tools {
@@ -259,8 +272,10 @@
   <header class="masthead">
     <div class="masthead-top">鏡好聽專用</div>
     <h1>節目組工具箱</h1>
+    <p class="masthead-intro">收聽分析、節目企劃、影音後製與播放工具，集中在這裡。</p>
   </header>
 
+  <div class="section-heading">資料分析與節目企劃</div>
   <div class="tools">
 
     <a href="tool-1/index.html" class="tool-card tool-1">
@@ -355,12 +370,68 @@
 
   </div>
 
+  <div class="section-heading">後製與影音工具</div>
+  <div class="tools">
+
+    <a href="https://mirrorvoicegit.github.io/editcue/" class="tool-card tool-editcue" target="_blank" rel="noopener noreferrer">
+      <div class="tool-name">EditCue</div>
+      <div class="tool-desc">
+        對照逐字稿與初剪內容，標示剪掉、移位、圖卡、字卡及片頭預告，整理剪輯修改需求。
+      </div>
+      <div class="tool-meta">
+        <div class="tool-meta-row">
+          <span class="label">工具類型</span>
+          <span>網頁版後製標註工具</span>
+        </div>
+        <div class="tool-meta-row">
+          <span class="label">適用情境</span>
+          <span>剪輯溝通、初剪核對</span>
+        </div>
+        <div class="tool-meta-row">
+          <span class="label">交付方式</span>
+          <span>匯出剪輯包</span>
+        </div>
+      </div>
+      <div class="tool-cta">
+        <span>開啟 EditCue</span>
+        <span class="arrow">→</span>
+      </div>
+    </a>
+
+    <a href="https://chromewebstore.google.com/detail/playmark-%E2%80%94-%E9%9B%B2%E7%AB%AF%E7%A1%AC%E7%A2%9F%E5%BD%B1%E9%9F%B3%E6%92%AD%E6%94%BE%E5%99%A8/aeaolgdiohoggjpdapfamhleapfkiicg" class="tool-card tool-playmark" target="_blank" rel="noopener noreferrer">
+      <div class="tool-name">Playmark</div>
+      <div class="tool-desc">
+        直接播放 Google 雲端硬碟裡的音樂與影片，支援播放清單、背景播放、倍速及時間軸筆記。
+      </div>
+      <div class="tool-meta">
+        <div class="tool-meta-row">
+          <span class="label">工具類型</span>
+          <span>Chrome 擴充功能</span>
+        </div>
+        <div class="tool-meta-row">
+          <span class="label">支援來源</span>
+          <span>Google 雲端硬碟</span>
+        </div>
+        <div class="tool-meta-row">
+          <span class="label">使用方式</span>
+          <span>先至 Chrome 商店安裝</span>
+        </div>
+      </div>
+      <div class="tool-cta">
+        <span>前往 Chrome 商店</span>
+        <span class="arrow">→</span>
+      </div>
+    </a>
+
+  </div>
+
   <div class="notes">
-    <div class="notes-title">使用提醒</div>
+    <div class="notes-title">收聽分析工具使用提醒</div>
     <ul>
-      <li>所有工具的資料邏輯不同,<strong>數字不能直接相加或比較</strong>(例如 Apple 的「播放次數」跟鏡好聽的「播放事件」定義不一樣)</li>
-      <li>所有資料解析、計算都在你的瀏覽器本機完成,<strong>檔案不會上傳到任何伺服器</strong></li>
-      <li>產出的報表都可以下載成獨立 HTML 檔,方便分享</li>
+      <li>以下僅適用於兩款收聽分析工具，EditCue、Playmark 與報獎雷達請參考各自的使用說明。</li>
+      <li>Apple 的「播放次數」與鏡好聽的「播放事件」定義不同，<strong>數字不能直接相加或比較</strong>。</li>
+      <li>收聽分析的資料解析、計算都在瀏覽器本機完成，<strong>匯入的檔案不會上傳至伺服器</strong>。</li>
+      <li>分析報表可下載為獨立 HTML 檔案，方便分享。</li>
     </ul>
   </div>
 
