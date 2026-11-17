@@ -361,13 +361,21 @@
         <span class="badge ready">正式版</span>
       </div>
       <div class="tool-desc">
-        追蹤 Podcast 相關獎項資訊的工具,會有爬蟲自動抓取獎項資料。
+        整理 Podcast 相關獎項的官方徵件資訊、截止日期與獎項日曆。已核實資料和待查證新聞分開呈現。
       </div>
 
       <div class="tool-meta">
         <div class="tool-meta-row">
-          <span class="label">版本</span>
-          <span>TODO_VERSION</span>
+          <span class="label">資料狀態</span>
+          <span id="awards-status">查詢中</span>
+        </div>
+        <div class="tool-meta-row">
+          <span class="label">功能</span>
+          <span>截止日追蹤、日曆訂閱</span>
+        </div>
+        <div class="tool-meta-row">
+          <span class="label">更新方式</span>
+          <span>候選自動搜尋／官方公告人工核對</span>
         </div>
       </div>
 
@@ -458,5 +466,24 @@
 
 </div>
 
+<script>
+  // 首頁摘要只讀取經人工核對的正式獎項，不混入尚未審核的爬蟲結果。
+  (async function updateAwardsSummary(){
+    const el=document.getElementById("awards-status");
+    if(!el)return;
+    try {
+      const response=await fetch("https://mirrorvoicegit.github.io/podcast-awards/data/awards.json",{cache:"no-store"});
+      if(!response.ok)throw new Error("查詢失敗");
+      const data=await response.json();
+      const now=new Date();
+      const today=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+      const verified=data.updatedAt||"未知";
+      const verifiedDate=/^\d{4}-\d{2}-\d{2}$/.test(verified)?new Date(verified+"T00:00:00"):null;
+      const age=verifiedDate?Math.floor((today-verifiedDate)/86400000):Infinity;
+      const open=(data.applications||[]).filter(x=>x.infoPublished&&x.deadline&&new Date(x.deadline+"T00:00:00")>=today);
+      el.textContent=age>45 ? "正式資料待更新（最後核對 "+verified+"）" : "已核實 "+open.length+" 筆尚未截止徵件";
+    } catch(_){el.textContent="請進入網站查詢"; }
+  })();
+</script>
 </body>
 </html>
