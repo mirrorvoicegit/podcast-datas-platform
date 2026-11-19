@@ -90,12 +90,6 @@
     letter-spacing: -0.03em;
     line-height: 1.05;
   }
-  .masthead-intro {
-    margin: 18px auto 0;
-    max-width: 640px;
-    color: var(--ink-soft);
-    font-size: 14px;
-  }
   .section-heading {
     margin: 0 0 14px;
     color: var(--ink-soft);
@@ -112,6 +106,8 @@
     margin-bottom: 40px;
     align-items: stretch;
   }
+
+  .tools-analysis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
   .tool-card {
     background: var(--glass);
@@ -286,11 +282,10 @@
   <header class="masthead">
     <div class="masthead-top">鏡好聽專用</div>
     <h1>節目組工具箱</h1>
-    <p class="masthead-intro">收聽分析、節目企劃、影音後製與播放工具，集中在這裡。</p>
   </header>
 
   <div class="section-heading">收聽數據分析</div>
-  <div class="tools">
+  <div class="tools tools-analysis">
 
     <a href="tool-1/index.html" class="tool-card tool-1">
       <div class="tool-name">
@@ -364,138 +359,140 @@
 
   </div>
 
-  <div class="section-heading">後製與影音工具</div>
-  <div class="tools">
+  <!-- 暫時隱藏其他工具，恢復時移除 template 標籤。 -->
+  <template id="paused-tools">
+    <div class="section-heading">後製與影音工具</div>
+    <div class="tools">
 
-    <div class="tool-card tool-editcue">
-      <a class="card-overlay-link" href="https://mirrorvoicegit.github.io/editcue/" target="_blank" rel="noopener noreferrer" aria-label="開啟 EditCue"></a>
-      <div class="tool-name">EditCue <span class="badge beta">Beta</span></div>
-      <div class="tool-desc">
-        對照逐字稿與初剪內容，標示剪掉、移位、圖卡、字卡及片頭預告，整理剪輯修改需求。
+      <div class="tool-card tool-editcue">
+        <a class="card-overlay-link" href="https://mirrorvoicegit.github.io/editcue/" target="_blank" rel="noopener noreferrer" aria-label="開啟 EditCue"></a>
+        <div class="tool-name">EditCue <span class="badge beta">Beta</span></div>
+        <div class="tool-desc">
+          對照逐字稿與初剪內容，標示剪掉、移位、圖卡、字卡及片頭預告，整理剪輯修改需求。
+        </div>
+        <div class="tool-meta">
+          <div class="tool-meta-row">
+            <span class="label">工具類型</span>
+            <span>網頁版後製標註工具</span>
+          </div>
+          <div class="tool-meta-row">
+            <span class="label">適用情境</span>
+            <span>剪輯溝通、初剪核對</span>
+          </div>
+          <div class="tool-meta-row">
+            <span class="label">交付方式</span>
+            <span>匯出剪輯包</span>
+          </div>
+          <div class="tool-meta-row">
+            <span class="label">版本</span>
+            <span>v6.7</span>
+          </div>
+        </div>
+        <div class="tool-cta">
+          <span>開啟 EditCue</span>
+          <span class="arrow">→</span>
+        </div>
+
       </div>
-      <div class="tool-meta">
-        <div class="tool-meta-row">
-          <span class="label">工具類型</span>
-          <span>網頁版後製標註工具</span>
+
+      <a href="https://chromewebstore.google.com/detail/playmark-%E2%80%94-%E9%9B%B2%E7%AB%AF%E7%A1%AC%E7%A2%9F%E5%BD%B1%E9%9F%B3%E6%92%AD%E6%94%BE%E5%99%A8/aeaolgdiohoggjpdapfamhleapfkiicg" class="tool-card tool-playmark" target="_blank" rel="noopener noreferrer">
+        <div class="tool-name">
+          Playmark｜審聽工具
+          <span class="badge ready">正式版</span>
         </div>
-        <div class="tool-meta-row">
-          <span class="label">適用情境</span>
-          <span>剪輯溝通、初剪核對</span>
+        <div class="tool-desc">
+          一邊播放音檔、一邊做筆記，隨手插入時間碼（timecode）就能回找重點；也可搭配 YouTube 影片學習、整理筆記。
         </div>
-        <div class="tool-meta-row">
-          <span class="label">交付方式</span>
-          <span>匯出剪輯包</span>
+        <div class="tool-meta">
+          <div class="tool-meta-row">
+            <span class="label">工具類型</span>
+            <span>Chrome 擴充功能</span>
+          </div>
+          <div class="tool-meta-row">
+            <span class="label">支援來源</span>
+            <span>Google 雲端硬碟、YouTube</span>
+          </div>
+          <div class="tool-meta-row">
+            <span class="label">適用情境</span>
+            <span>節目審聽、影音學習</span>
+          </div>
+          <div class="tool-meta-row">
+            <span class="label">使用方式</span>
+            <span>先至 Chrome 商店安裝</span>
+          </div>
         </div>
-        <div class="tool-meta-row">
-          <span class="label">版本</span>
-          <span>v6.7</span>
+        <div class="tool-cta">
+          <span>前往 Chrome 商店</span>
+          <span class="arrow">→</span>
         </div>
-      </div>
-      <div class="tool-cta">
-        <span>開啟 EditCue</span>
-        <span class="arrow">→</span>
-      </div>
-      
+      </a>
+
+      <a href="https://gemini.google.com/share/c101facb2d8f" class="tool-card tool-apple-cover" target="_blank" rel="noopener noreferrer">
+        <div class="tool-name">Apple Podcasts 封面轉換器</div>
+        <div class="tool-desc">
+          製作或整理節目封面時，快速開啟專用的 Gemini 封面轉換工具。
+        </div>
+        <div class="tool-meta">
+          <div class="tool-meta-row">
+            <span class="label">工具類型</span>
+            <span>Gemini 外部工具</span>
+          </div>
+          <div class="tool-meta-row">
+            <span class="label">適用情境</span>
+            <span>Apple Podcasts 封面處理</span>
+          </div>
+          <div class="tool-meta-row">
+            <span class="label">使用方式</span>
+            <span>點擊連結開啟 Gemini</span>
+          </div>
+        </div>
+        <div class="tool-cta">
+          <span>開啟封面轉換器</span>
+          <span class="arrow">→</span>
+        </div>
+      </a>
+
     </div>
 
-    <a href="https://chromewebstore.google.com/detail/playmark-%E2%80%94-%E9%9B%B2%E7%AB%AF%E7%A1%AC%E7%A2%9F%E5%BD%B1%E9%9F%B3%E6%92%AD%E6%94%BE%E5%99%A8/aeaolgdiohoggjpdapfamhleapfkiicg" class="tool-card tool-playmark" target="_blank" rel="noopener noreferrer">
-      <div class="tool-name">
-        Playmark｜審聽工具
-        <span class="badge ready">正式版</span>
-      </div>
-      <div class="tool-desc">
-        一邊播放音檔、一邊做筆記，隨手插入時間碼（timecode）就能回找重點；也可搭配 YouTube 影片學習、整理筆記。
-      </div>
-      <div class="tool-meta">
-        <div class="tool-meta-row">
-          <span class="label">工具類型</span>
-          <span>Chrome 擴充功能</span>
-        </div>
-        <div class="tool-meta-row">
-          <span class="label">支援來源</span>
-          <span>Google 雲端硬碟、YouTube</span>
-        </div>
-        <div class="tool-meta-row">
-          <span class="label">適用情境</span>
-          <span>節目審聽、影音學習</span>
-        </div>
-        <div class="tool-meta-row">
-          <span class="label">使用方式</span>
-          <span>先至 Chrome 商店安裝</span>
-        </div>
-      </div>
-      <div class="tool-cta">
-        <span>前往 Chrome 商店</span>
-        <span class="arrow">→</span>
-      </div>
-    </a>
+    <div class="section-heading">其他工具</div>
+    <div class="tools">
 
-    <a href="https://gemini.google.com/share/c101facb2d8f" class="tool-card tool-apple-cover" target="_blank" rel="noopener noreferrer">
-      <div class="tool-name">Apple Podcasts 封面轉換器</div>
-      <div class="tool-desc">
-        製作或整理節目封面時，快速開啟專用的 Gemini 封面轉換工具。
-      </div>
-      <div class="tool-meta">
-        <div class="tool-meta-row">
-          <span class="label">工具類型</span>
-          <span>Gemini 外部工具</span>
+      <a href="https://mirrorvoicegit.github.io/podcast-awards/" class="tool-card tool-4" target="_blank" rel="noopener">
+        <div class="tool-name">
+          Podcast 報獎雷達
+          <span class="badge beta">Beta</span>
         </div>
-        <div class="tool-meta-row">
-          <span class="label">適用情境</span>
-          <span>Apple Podcasts 封面處理</span>
+        <div class="tool-desc">
+          整理 Podcast 相關獎項的官方徵件資訊、截止日期與獎項日曆。已核實資料和待查證新聞分開呈現。
         </div>
-        <div class="tool-meta-row">
-          <span class="label">使用方式</span>
-          <span>點擊連結開啟 Gemini</span>
+
+        <div class="tool-meta">
+          <div class="tool-meta-row">
+            <span class="label">資料狀態</span>
+            <span id="awards-status">查詢中</span>
+          </div>
+          <div class="tool-meta-row">
+            <span class="label">功能</span>
+            <span>截止日追蹤、日曆訂閱</span>
+          </div>
+          <div class="tool-meta-row">
+            <span class="label">更新方式</span>
+            <span>持續搜尋／官方公告查證</span>
+          </div>
         </div>
-      </div>
-      <div class="tool-cta">
-        <span>開啟封面轉換器</span>
-        <span class="arrow">→</span>
-      </div>
-    </a>
 
-  </div>
-
-  <div class="section-heading">其他工具</div>
-  <div class="tools">
-
-    <a href="https://mirrorvoicegit.github.io/podcast-awards/" class="tool-card tool-4" target="_blank" rel="noopener">
-      <div class="tool-name">
-        Podcast 報獎雷達
-        <span class="badge beta">Beta</span>
-      </div>
-      <div class="tool-desc">
-        整理 Podcast 相關獎項的官方徵件資訊、截止日期與獎項日曆。已核實資料和待查證新聞分開呈現。
-      </div>
-
-      <div class="tool-meta">
-        <div class="tool-meta-row">
-          <span class="label">資料狀態</span>
-          <span id="awards-status">查詢中</span>
+        <div class="tool-cta">
+          <span>進入工具</span>
+          <span class="arrow">→</span>
         </div>
-        <div class="tool-meta-row">
-          <span class="label">功能</span>
-          <span>截止日追蹤、日曆訂閱</span>
-        </div>
-        <div class="tool-meta-row">
-          <span class="label">更新方式</span>
-          <span>持續搜尋／官方公告查證</span>
-        </div>
-      </div>
+      </a>
 
-      <div class="tool-cta">
-        <span>進入工具</span>
-        <span class="arrow">→</span>
-      </div>
-    </a>
-
-  </div>
+    </div>
+  </template>
 
   <div class="notes">
     <div class="notes-title">收聽分析工具使用提醒</div>
     <ul>
-      <li>以下僅適用於兩款收聽分析工具。其他外部工具（包含報獎雷達、EditCue、Playmark、封面轉換器）請參考各自的使用說明。</li>
       <li>Apple 的「播放次數」與鏡好聽的「播放事件」定義不同，<strong>數字不能直接相加或比較</strong>。</li>
       <li>收聽分析的資料解析、計算都在瀏覽器本機完成，<strong>匯入的檔案不會上傳至伺服器</strong>。</li>
       <li>分析報表可下載為獨立 HTML 檔案，方便分享。</li>
